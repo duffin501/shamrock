@@ -1,0 +1,12 @@
+{
+  "name": "shamrock",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mary and Jon's Shamrock Marathon training tracker.",
+  "scripts": {
+    "test": "node tools/selftest.mjs",
+    "rules": "node tools/build-rules.mjs",
+    "icons": "python icons/make_icons.py"
+  }
+}

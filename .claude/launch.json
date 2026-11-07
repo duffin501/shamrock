@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "shamrock-dev", "runtimeExecutable": "python", "runtimeArgs": ["_dev/serve.py", "8737"], "port": 8737 }
+  ]
+}

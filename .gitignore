@@ -1,0 +1,8 @@
+# Real addresses. These belong in the Firebase rules, never in the repo.
+emails.local.json
+# Generated from emails.local.json by tools/build-rules.mjs.
+rules.shamrock.json
+node_modules/
+.DS_Store
+Thumbs.db
+_dev/
