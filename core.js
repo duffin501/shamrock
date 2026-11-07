@@ -259,8 +259,10 @@ export function season(p, { now = Date.now() } = {}) {
       if (s === "done" || s === "miss") out.due++;
       if (s === "miss") out.misses++;
       if (r?.long && (s === "done" || s === "miss")) { out.longDue++; if (s === "done") out.longDone++; }
+      // Garmin wins, unless it saw no run on a day you tapped a run done
+      // (watch died, forgot to start it): then the plan distance stands in.
       const gm = gdays[d];
-      if (gm) {
+      if (gm && ((gm.r || 0) > 0 || !(s === "done" && r?.run))) {
         out.miles += gm.r || 0;
         if ((gm.lr || 0) > out.longest) { out.longest = gm.lr; out.longestEst = false; }
       } else if (s === "done" && r?.run) {

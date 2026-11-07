@@ -147,6 +147,14 @@ t("season numbers", () => {
   assert.equal(wk3.status["2026-11-16"], "miss");
   assert.equal(wk3.status["2026-11-17"], "today");
 });
+t("garmin zero day does not erase a tapped run", () => {
+  const W = "2026-11-09";
+  const p = { tz: "America/New_York", start: W, weeks: { [W]: { lockedAt: 1, days: defaultWeek(W) } },
+    log: { "2026-11-09": { done: true } }, garmin: { days: { "2026-11-09": { r: 0, lr: 0, n: 0 }, "2026-11-10": { r: 0, lr: 0, n: 1 } } } };
+  const s = season(p, { now: Date.parse("2026-11-11T15:00:00Z") });
+  assert.equal(s.miles, 3); assert.equal(s.milesEst, 3);
+  assert.equal(s.status["2026-11-10"], "done", "bike day backed by any activity");
+});
 t("swap choices", () => {
   const days = defaultWeek(W2);
   const st = (d) => (d < "2026-11-11" ? "done" : "future");

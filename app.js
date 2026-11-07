@@ -241,7 +241,12 @@ async function savePred(txt) {
  * is the only one the rules let write here. */
 window.shamrockIngest = async (payload) => {
   if (S.me !== "mary") throw new Error("sign in as Mary first");
+  if (typeof payload === "string") payload = JSON.parse(payload);
   const at = now(), ups = {}, out = [];
+  if (payload?.error) {
+    await set(ref(db, `${ROOT}/garmin/meta/fail`), { at, note: String(payload.error).slice(0, 200) });
+    return "recorded failure";
+  }
   const etToday = clock("America/New_York", at).iso;
   for (const id of ids()) {
     const x = payload?.[id];
@@ -258,10 +263,11 @@ window.shamrockIngest = async (payload) => {
     }
     out.push(`${id}:${n}d${x.pred ? "+pred" : ""}`);
   }
-  ups["garmin/meta"] = { at, note: String(payload?.note || "").slice(0, 200) };
+  ups["garmin/meta"] = { at, note: String(payload?.note || "").slice(0, 200), fail: null };
   await update(ref(db, ROOT), ups);
   return "ok " + out.join(" ");
 };
+window.shamrockReady = () => S.phase === "ready" && S.me === "mary";
 window.shamrockState = () => JSON.stringify(Object.fromEntries(ids().map((id) => {
   const s = SEASON[id] || {};
   return [id, { today: s.today, workouts: s.workouts, due: s.due, misses: s.misses, miles: s.miles, longest: s.longest }];
@@ -378,6 +384,7 @@ function navBtn(tab, label) {
 
 function lockBanner() {
   if (S.tab === "week" && S.seg === "next" && S.who === S.me) return "";
+  if (S.tab === "today" && !person(S.me).start) return "";
   const s = SEASON[S.me];
   const next = addDays(weekOf(s.today), 7);
   if (!plannable().includes(next)) return "";
@@ -414,7 +421,7 @@ function tabToday() {
   out.push(hero());
 
   const w = weekOf(s.today);
-  if (inPlan(w)) {
+  if (inPlan(w) && p.start && s.today >= p.start) {
     out.push(`<section class="block"><div class="block-head"><p class="eyebrow">This week</p>
       <p class="eyebrow">${esc(weekRange(w))}</p></div>${strip(S.me, w)}</section>`);
   }
@@ -644,7 +651,8 @@ function tabUs() {
 
   const gm = S.data.garmin?.meta;
   const synced = gm?.at ? `Garmin synced ${esc(timeIn(person(S.me).tz, gm.at))}` : "Garmin hasn't synced yet. Tapped runs count at plan distance until it does.";
-  const stale = gm?.at && now() - gm.at > 36 * 3600000;
+  const failed = gm?.fail?.at && (!gm.at || gm.fail.at > gm.at);
+  const stale = failed || (gm?.at && now() - gm.at > 36 * 3600000);
 
   const me = person(S.me);
   const myPred = S.me === a ? pa : pb;
@@ -652,7 +660,7 @@ function tabUs() {
   return `<section class="block h2h">
       <div class="h2h-head"><span class="p-${a}">${esc(nameOf(a))}</span><span></span><span class="p-${b}">${esc(nameOf(b))}</span></div>
       ${rows}
-      <p class="note small ${stale ? "warn" : ""}">${synced}${stale ? " That's over a day old." : ""}</p>
+      <p class="note small ${stale ? "warn" : ""}">${synced}${failed ? ` Last try ${esc(timeIn(person(S.me).tz, gm.fail.at))} failed: ${esc(gm.fail.note)}. Mary: sign in to Garmin Connect in Chrome on the laptop.` : stale ? " That's over a day old." : ""}</p>
     </section>
     <section class="block">
       <div class="block-head"><p class="eyebrow">The season</p><p class="eyebrow legend"><i class="lg done"></i>green <i class="lg miss"></i>red</p></div>
