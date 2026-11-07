@@ -5,21 +5,31 @@ Installs on a phone as an app. Free to run. Live at https://duffin501.github.io/
 
 ## How a week works
 
-- **Sunday evening, lock in next week.** From 5 PM Sunday (your own time) the app
-  opens on next week, already filled in from the plan. Tap minus to drop a workout
-  (stroller walk goes first, then easy runs, shortest first, then the bike, never the
-  long run). Tap any day to cycle it: plan, easy run, alt cardio, rest. Tap the long
-  run to move it to another day. Then Lock.
-- **Miss the lock-in and the full plan locks for you** when the week starts.
-- **One swap a week.** Trade two days that haven't happened yet. Today counts as not
-  happened until you log it.
+Week 1 is the week of 9 Nov 2026; race week is week 19. The plan file starts a
+week earlier, but nothing before 9 Nov is tracked.
+
+- **Lock in next week on Sunday.** Lock-in is open all of Sunday, your own time, for
+  the Monday to Sunday week ahead. The app opens on it, already filled in from the plan.
+  - **Drag** a day by its grip onto another day and the two trade workouts.
+  - **Tap** a day to change it (plan, easy run, alt cardio, rest) or its miles (runs)
+    or minutes (bike, walk, alt). The long run can move and change distance (8 mi
+    minimum) but never comes off the week. Race day stays put.
+  - **Minus** drops a day in this order: stroller walk, bike and alt cardio, Z2 runs
+    down to one (shortest first), hard days, then the last Z2. **Plus** brings them
+    back in reverse.
+  - A hard day (threshold, hills, intervals, marathon pace, the 30 min test) landing
+    the day before or after the long run asks you to confirm.
+  - "Below plan" shows under 4 workout days for Mary and under 3 for Jon (alt counts).
+- **Miss the lock-in and the plan's week is your week** at midnight Sunday.
+- **One swap a week** after that. Trade two days that haven't happened yet. Today
+  counts as not happened until you log it.
 - **Green or red.** Tap Done and the day goes green. A rest day goes green by itself.
-  Forgot to tap? You have until noon the next day, and the nightly Garmin pull also
-  marks a day done when it finds the activity. After that an undone day is red for good.
+  Forgot to tap? You have until noon the next day, and the Garmin sync also marks a
+  day done when it finds the activity. After that an undone day is red for good.
 
 ## The numbers
 
-Workouts done on the day, missed days, miles since 2 Nov, longest single run, long
+Workouts done on the day, missed days, miles since 9 Nov, longest single run, long
 runs done, and a marathon projection: the latest long run's average pace held for
 26.2 miles, with the change since the long run before it. A week's long run is its
 longest Garmin run if that was 8 miles or more.
@@ -41,8 +51,11 @@ It runs [tools/garmin_sync.js](tools/garmin_sync.js) on a signed-in Garmin Conne
   structured `SHAM //` workout is on the watch. The first time it sees a locked week it
   records what the calendar already had (the "base"), then moves those same workouts.
   That keeps each person's own versions, like Mary's 45 min bikes or Jon's HR-scaled runs.
-  Rest and alt cardio days are blank on the watch, and an easy run gets that week's
-  `SHAM // Z2 N MI`. Only `SHAM //` workouts from today forward are ever touched.
+  Rest, walk and alt cardio days are blank on the watch. A day with changed miles or
+  minutes, or an easy run, gets an exact workout (built in Garmin if it doesn't exist,
+  for example `SHAM // LONG 12.5 MI`; on hard days the easy cool-down takes the change).
+  Old `STROLLER Z2` workouts are swapped for plain `Z2` ones. Only `SHAM //` workouts
+  from today forward are ever touched.
 
 Mary's run also reads Jon's activities as a backup. Garmin only lets each person
 change their own calendar, so Jon's watch needs his own task.

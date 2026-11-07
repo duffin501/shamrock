@@ -17,8 +17,12 @@
  *    what that week's calendar already had (the "base") and changes nothing;
  *    the app stores the base and the next pass moves those same workouts
  *    around. That keeps each person's own versions (Mary's 45 min bikes,
- *    Jon's HR-scaled runs). Rest and alt cardio days are left blank; an easy
- *    run gets that week's "SHAM // Z2 N MI".
+ *    Jon's HR-scaled runs). A day whose miles or minutes were changed in the
+ *    app, or an easy run, comes with an exact workout ("want") and its steps
+ *    ("def"); if that workout doesn't exist yet in this Garmin account it is
+ *    created. Old "STROLLER Z2" workouts are replaced by the plain "Z2" ones
+ *    (Mary dropped the stroller label, 7 Nov). Rest, alt cardio and walk days
+ *    are left blank on the watch.
  *
  * Set dry: true in the input to get the planned changes without making them.
  * Starts with a top-level await so the javascript tool waits for the result.
@@ -46,6 +50,34 @@ await (async () => {
     return r.status === 204 ? null : r.json().catch(() => null);
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Same workout format as the Garmin load file used (proven 1 Nov 2026).
+  const SPORT = { running: { sportTypeId: 1, sportTypeKey: "running" }, cycling: { sportTypeId: 2, sportTypeKey: "cycling" } };
+  const STEP = { warmup: 1, cooldown: 2, interval: 3, recovery: 4 };
+  function expand(name, def) {
+    const [sport, desc, steps] = def;
+    let order = 0, child = 0;
+    const conv = (arr, cid) => arr.map((st) => {
+      order++;
+      if (st[0] === "r") {
+        const c = ++child, so = order;
+        return { type: "RepeatGroupDTO", stepOrder: so, stepType: { stepTypeId: 6, stepTypeKey: "repeat" }, childStepId: c,
+          numberOfIterations: st[1], smartRepeat: false, endCondition: { conditionTypeId: 7, conditionTypeKey: "iterations" },
+          endConditionValue: st[1], workoutSteps: conv(st[2], c) };
+      }
+      const isD = st[1] === "d";
+      const o = { type: "ExecutableStepDTO", stepOrder: order, stepType: { stepTypeId: STEP[st[0]], stepTypeKey: st[0] }, description: st[5] || "",
+        endCondition: isD ? { conditionTypeId: 3, conditionTypeKey: "distance" } : { conditionTypeId: 2, conditionTypeKey: "time" },
+        endConditionValue: isD ? Math.round(st[2] * 1609.344 * 100) / 100 : st[2],
+        preferredEndConditionUnit: isD ? { unitKey: "mile" } : null,
+        targetType: st[3] ? { workoutTargetTypeId: 4, workoutTargetTypeKey: "heart.rate.zone" } : { workoutTargetTypeId: 1, workoutTargetTypeKey: "no.target" },
+        targetValueOne: st[3] || null, targetValueTwo: st[4] || null, zoneNumber: null };
+      if (cid) o.childStepId = cid;
+      return o;
+    });
+    return { sportType: SPORT[sport], workoutName: name, description: desc,
+      workoutSegments: [{ segmentOrder: 1, sportType: SPORT[sport], workoutSteps: conv(steps, null) }] };
+  }
 
   try { await req("/gc-api/userprofile-service/socialProfile"); }
   catch (e) { return JSON.stringify({ who, error: "Garmin signed out or profile failed: " + e.message }); }
@@ -123,30 +155,45 @@ await (async () => {
       for (const d of dates) {
         if (d < IN.today) continue;
         const a = wk.days[d] || { k: "rest" };
-        let want = "";
-        if (a.k === "plan") want = hasBase ? (none(B[a.src]) ? "" : B[a.src]) : (a.g || "");
-        else if (a.k === "easy") want = wk.easy || "";
+        let want = "", def = null;
+        if (a.want) { want = a.want; def = a.def || null; }
+        else if (a.k === "plan") {
+          want = hasBase ? (none(B[a.src]) ? "" : B[a.src]) : (a.g || "");
+          want = want.replace("SHAM // STROLLER Z2 ", "SHAM // Z2 ");
+          if (want && want === a.g) def = a.def || null;
+        } else if (a.k === "easy") want = wk.easy || "";
         let kept = false;
         for (const it of (onDay[d] || [])) {
           if (want && !kept && it.title === want) { kept = true; continue; }
           actions.push(["del", d, it.id, it.title]);
         }
         if (want && !kept) {
-          if (ids[want]) actions.push(["add", d, ids[want], want]);
+          if (ids[want] || def) actions.push(["add", d, want, def]);
           else missing.add(want);
         }
       }
       cal.through = add(wk.w, 6);
     }
     cal.missing = [...missing];
+    const label = (x) => x[0] === "del" ? x[3] : x[2];
     if (IN.dry) {
-      cal.plan = actions.map((x) => `${x[0]} ${x[1].slice(5)} ${x[3].replace("SHAM // ", "")}`);
+      cal.plan = actions.map((x) => `${x[0]} ${x[1].slice(5)} ${label(x).replace("SHAM // ", "")}${x[0] === "add" && !ids[x[2]] ? " (new)" : ""}`);
     } else {
+      cal.created = 0;
       // Removals first so a day never carries two workouts for long.
       for (const x of actions.sort((p, q) => (p[0] === q[0] ? 0 : p[0] === "del" ? -1 : 1))) {
         try {
           if (x[0] === "del") { await req(`/gc-api/workout-service/schedule/${x[2]}`, { method: "DELETE" }); cal.removed++; }
-          else { await req(`/gc-api/workout-service/schedule/${x[2]}`, { method: "POST", body: JSON.stringify({ date: x[1] }) }); cal.added++; }
+          else {
+            if (!ids[x[2]]) {
+              const made = await req("/gc-api/workout-service/workout", { method: "POST", body: JSON.stringify(expand(x[2], x[3])) });
+              if (!made?.workoutId) throw new Error("create " + x[2]);
+              ids[x[2]] = made.workoutId; cal.created++;
+              await sleep(250);
+            }
+            await req(`/gc-api/workout-service/schedule/${ids[x[2]]}`, { method: "POST", body: JSON.stringify({ date: x[1] }) });
+            cal.added++;
+          }
         } catch (e) { cal.failed++; notes.push(e.message); }
         await sleep(250);
       }

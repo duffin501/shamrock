@@ -16,8 +16,10 @@ export const FIREBASE = {
   appId: "1:132417017058:web:e2bb6a905b5b77f8ccbabb"
 };
 
-/* Starting values only. Threshold HR is editable from the Us tab. */
+/* Starting values only. Threshold HR is editable from the Us tab.
+ * minDays: under this many workout days in a week (alt cardio counts) the
+ * week shows "Below plan" (Mary, 7 Nov). */
 export const PEOPLE = [
-  { id: "mary", name: "Mary", tz: "America/New_York", place: "Virginia", lt: 167 },
-  { id: "jon",  name: "Jon",  tz: "America/Denver",   place: "Utah",     lt: 167 }
+  { id: "mary", name: "Mary", tz: "America/New_York", place: "Virginia", lt: 167, minDays: 4 },
+  { id: "jon",  name: "Jon",  tz: "America/Denver",   place: "Utah",     lt: 167, minDays: 3 }
 ];

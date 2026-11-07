@@ -12,14 +12,16 @@
  * Everything time-related takes the person's own timezone, so each of you
  * gets your own midnight and your own noon. */
 
-import { PLAN, PLAN_START, RACE_DAY, BASE_LT } from "./plan.js";
+import { PLAN, STEPS, PLAN_START, RACE_DAY, BASE_LT } from "./plan.js";
 
-export { PLAN, PLAN_START, RACE_DAY, BASE_LT };
+export { PLAN, STEPS, PLAN_START, RACE_DAY, BASE_LT };
 
-export const RUN_KINDS = new Set(["easy", "stroller", "quality", "long", "race", "easyrun"]);
+export const RUN_KINDS = new Set(["easy", "quality", "long", "race", "easyrun"]);
 export const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const GRACE_HOUR = 12;       // yesterday stays loggable until noon
-export const SUNDAY_PROMPT_HOUR = 17;
+// Week 1 is the week of 9 Nov (Mary, 7 Nov). The plan file starts a week
+// earlier, but nothing before this date is tracked or counted.
+export const SEASON_START = "2026-11-09";
 
 /* ===================== dates ===================== */
 
@@ -29,10 +31,16 @@ export const diffDays = (a, b) => Math.round((noon(b) - noon(a)) / 86400000);
 export const dowIdx = (iso) => (new Date(noon(iso)).getUTCDay() + 6) % 7; // Mon = 0
 export const weekOf = (iso) => addDays(iso, -dowIdx(iso));
 export const weekDates = (w) => [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(w, i));
-export const FIRST_WEEK = PLAN_START;
+export const FIRST_WEEK = SEASON_START;
 export const LAST_WEEK = weekOf(RACE_DAY);
 export const weekNo = (w) => Math.floor(diffDays(FIRST_WEEK, w) / 7) + 1;
 export const inPlan = (w) => w >= FIRST_WEEK && w <= LAST_WEEK;
+export const TOTAL_WEEKS = Math.floor(diffDays(FIRST_WEEK, weekOf(RACE_DAY)) / 7) + 1;
+
+/* Lock-in is open all of Sunday, in your own timezone, for the week that
+ * starts the next morning. At midnight it closes and an unlocked week
+ * becomes the plan's week. */
+export const lockOpen = (clk, w) => clk.dow === 6 && w === addDays(weekOf(clk.iso), 7) && inPlan(w);
 
 /* The wall clock for one person: their date, hour and weekday right now. */
 export function clock(tz, now = Date.now()) {
@@ -71,25 +79,45 @@ export function scaleNote(note, kind, lt) {
     `${Math.round(+a * lt / BASE_LT)}-${Math.round(+b * lt / BASE_LT)}`);
 }
 
-/* Turns an assignment into what to show and how to judge it. */
+export const fmtNum = (n) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10));
+
+/* "Long 11 mi" becomes "Long 12 mi" when the number in the title is the
+ * plan amount; otherwise the new amount goes on the end. */
+function retitle(title, base, val, unit) {
+  if (val === base) return title;
+  const re = new RegExp(`\\b${String(base).replace(".", "\\.")} ${unit}\\b`);
+  return re.test(title) ? title.replace(re, `${fmtNum(val)} ${unit}`) : `${title} · ${fmtNum(val)} ${unit}`;
+}
+
+/* Turns an assignment into what to show and how to judge it. An assignment
+ * can carry its own amount: mi on a run, min on a bike, walk or alt day. */
 export function resolve(a, iso) {
   if (!a || a.k === "rest") {
     return { kind: "rest", title: "Rest day", short: "REST", rest: true, run: false, long: false,
       note: "Nothing scheduled. It turns green on its own." };
   }
   if (a.k === "plan" && PLAN[a.src]) {
-    const p = PLAN[a.src];
-    return { kind: p.k, title: p.t, short: p.s, mi: p.mi || 0, est: !!p.est, min: p.min || 0,
-      note: p.note, rest: false, run: RUN_KINDS.has(p.k), long: p.k === "long" || p.k === "race",
-      race: p.k === "race", src: a.src };
+    const p = PLAN[a.src], run = RUN_KINDS.has(p.k);
+    const baseMi = p.mi || 0, baseMin = p.min || 0;
+    const mi = run && a.mi ? a.mi : baseMi, min = !run && a.min ? a.min : baseMin;
+    const changed = run ? mi !== baseMi : min !== baseMin;
+    const unit = run ? "mi" : "min";
+    return {
+      kind: p.k, title: retitle(p.t, run ? baseMi : baseMin, run ? mi : min, unit),
+      short: changed && /\d/.test(p.s) ? p.s.replace(/[\d.]+/, fmtNum(run ? mi : min)) : p.s,
+      mi, min, baseMi, baseMin, changed, est: !!p.est && !(changed && p.k !== "quality"),
+      note: p.note, rest: false, run, long: p.k === "long" || p.k === "race",
+      race: p.k === "race", src: a.src, g: p.g || ""
+    };
   }
   if (a.k === "easy") {
-    const mi = easyMiles(weekOf(iso));
-    return { kind: "easyrun", title: `Easy run ${mi} mi`, short: `EASY ${mi}`, mi, rest: false,
-      run: true, long: false, note: "Your route, your call. HR 125-143." };
+    const base = easyMiles(weekOf(iso)), mi = a.mi || base;
+    return { kind: "easyrun", title: `Easy run ${fmtNum(mi)} mi`, short: `EASY ${fmtNum(mi)}`, mi, baseMi: base,
+      changed: mi !== base, rest: false, run: true, long: false, note: "Your route, your call. HR 125-143." };
   }
-  return { kind: "alt", title: "Alt cardio 30 to 45 min", short: "ALT", min: 40, rest: false,
-    run: false, long: false, note: "Bike, row, elliptical, swim or a brisk walk. Easy, HR 100-130." };
+  const min = a.min || 40;
+  return { kind: "alt", title: `Alt cardio ${min} min`, short: "ALT", min, baseMin: 40, changed: min !== 40,
+    rest: false, run: false, long: false, note: "Bike, row, elliptical, swim or a brisk walk. Easy, HR 100-130." };
 }
 
 export const isRest = (a) => !a || a.k === "rest";
@@ -106,73 +134,190 @@ export const planCount = (w) => countOf(defaultWeek(w));
 export function longSlot(days) {
   return Object.keys(days).sort().find((d) => days[d]?.k === "plan" && ["long", "race"].includes(PLAN[days[d].src]?.k)) || null;
 }
+const isRace = (days, d) => days[d]?.k === "plan" && PLAN[days[d].src]?.k === "race";
 
 const usedSrcs = (days) => new Set(Object.values(days).filter((a) => a?.k === "plan").map((a) => a.src));
 const unusedSrcs = (days, w) => weekDates(w).filter((d) => PLAN[d] && !usedSrcs(days).has(d));
 
-/* Which day goes first when the count drops. Lower goes first: stroller
- * walks, then easy runs (shortest first), then the bike, then quality. The
- * long run never goes. */
-export function trimRank(a, iso) {
+/* ---------- dropping and adding workouts ---------- */
+
+/* What kind of day it is for the drop order. "hard" is every quality day:
+ * threshold, hills, intervals, marathon-pace runs and the 30 minute test. */
+function dropClass(a, iso) {
   const r = resolve(a, iso);
-  if (r.rest) return -1;
-  if (r.long) return Infinity;
-  if (r.kind === "walk") return 1;
-  if (["easy", "stroller", "easyrun"].includes(r.kind)) return 2 + (r.mi || 0) / 100;
-  if (r.kind === "bike" || r.kind === "alt") return 3;
-  return 4;
+  if (r.rest) return null;
+  if (r.long) return "long";
+  if (r.kind === "walk") return "walk";
+  if (r.kind === "bike" || r.kind === "alt") return "cross";
+  if (r.kind === "quality") return "hard";
+  return "z2";
 }
 
-export function stepDown(days, w) {
-  const cands = Object.keys(days).filter((d) => !isRest(days[d]) && trimRank(days[d], d) !== Infinity);
-  if (!cands.length) return days;
-  cands.sort((x, y) => trimRank(days[x], x) - trimRank(days[y], y) || (y < x ? -1 : 1));
-  return { ...days, [cands[0]]: { k: "rest" } };
+/* The order the minus button takes days away, first to last (Mary, 7 Nov):
+ * stroller walk, then bike and alt cardio, then Z2 runs down to one
+ * (shortest first), then hard days, then the last Z2. Within a group the day
+ * nearest the long run goes first. The long run is never in the list. */
+export function dropOrder(days) {
+  const L = longSlot(days);
+  const gap = (d) => (L ? Math.abs(diffDays(d, L)) : 9);
+  const r = (d) => resolve(days[d], d);
+  const by = (cls) => Object.keys(days).filter((d) => dropClass(days[d], d) === cls);
+  const near = (x, y) => gap(x) - gap(y) || (x < y ? 1 : -1);
+  const z2 = by("z2").sort((x, y) => (r(x).mi || 0) - (r(y).mi || 0) || near(x, y));
+  const keeper = z2.length ? z2[z2.length - 1] : null;
+  return [
+    ...by("walk").sort(near),
+    ...by("cross").sort(near),
+    ...z2.filter((d) => d !== keeper),
+    ...by("hard").sort(near),
+    ...(keeper ? [keeper] : [])
+  ];
 }
 
+export function stepDown(days) {
+  const order = dropOrder(days);
+  return order.length ? { ...days, [order[0]]: { k: "rest" } } : days;
+}
+
+/* Adding one back is the drop order run backwards: the last Z2 (if none is
+ * left), then hard days, then more Z2s (longest first), then bike, then the
+ * walk. Within a group the day farthest from the long run comes back first. */
 export function stepUp(days, w) {
   const rests = Object.keys(days).filter((d) => isRest(days[d])).sort();
   if (!rests.length) return days;
   const free = unusedSrcs(days, w);
   if (!free.length) return { ...days, [rests[0]]: { k: "easy" } };
-  // Bring back the most valuable workout first, on its own day when that day is free.
-  free.sort((x, y) => trimRank({ k: "plan", src: y }, y) - trimRank({ k: "plan", src: x }, x) || (x < y ? -1 : 1));
-  const src = free[0];
-  const slot = rests.includes(src) ? src : rests[0];
-  return { ...days, [slot]: { k: "plan", src } };
+  const L = longSlot(days);
+  const hasZ2 = Object.keys(days).some((d) => dropClass(days[d], d) === "z2");
+  const score = (src, slot) => {
+    const a = { k: "plan", src }, cls = dropClass(a, slot), r = resolve(a, slot);
+    const group = { walk: 0, cross: 1, z2: hasZ2 ? 2 : 4, hard: 3 }[cls] ?? 0;
+    const gap = L ? Math.abs(diffDays(slot, L)) : 0;
+    return group * 1e4 + (cls === "z2" ? (r.mi || 0) * 100 : 0) + gap;
+  };
+  let best = null, bestScore = -1;
+  for (const src of free) {
+    const slot = rests.includes(src) ? src : rests[0];
+    const sc = score(src, slot);
+    if (sc > bestScore) { best = { ...days, [slot]: { k: "plan", src } }; bestScore = sc; }
+  }
+  return best || days;
 }
 
-/* One tap on a day steps it through plan, easy run, alt cardio, rest. Steps
- * that would repeat the plan (an easy run on an easy day, alt cardio on a
- * bike day) are skipped. The long run doesn't cycle; it moves. */
-export function cycleOptions(days, d, w) {
+/* ---------- editing one day ---------- */
+
+/* The kinds a day can be set to. The long run (and race) can only move or
+ * change distance, never become something else. */
+export function kindOptions(days, d, w) {
+  if (d === longSlot(days)) return [];
   const a = days[d];
   const cur = a?.k === "plan" ? a.src : null;
   const free = unusedSrcs(days, w);
   const home = cur || (free.includes(d) ? d : free[0]) || null;
   const pk = home ? PLAN[home].k : null;
   const opts = [];
-  if (home) opts.push({ k: "plan", src: home });
-  if (!["easy", "stroller"].includes(pk)) opts.push({ k: "easy" });
-  if (!["bike", "walk"].includes(pk)) opts.push({ k: "alt" });
-  opts.push({ k: "rest" });
+  if (home) opts.push({ k: "plan", src: home, label: PLAN[home].t });
+  if (pk !== "easy") opts.push({ k: "easy", label: "Easy run" });
+  if (!["bike", "walk"].includes(pk)) opts.push({ k: "alt", label: "Alt cardio" });
+  opts.push({ k: "rest", label: "Rest" });
   return opts;
 }
 
-export function cycle(days, d, w) {
-  if (d === longSlot(days)) return days;
-  const opts = cycleOptions(days, d, w);
-  const a = days[d] || { k: "rest" };
-  const i = opts.findIndex((o) => o.k === a.k && (o.k !== "plan" || o.src === a.src));
-  return { ...days, [d]: opts[(i + 1) % opts.length] };
+export function setKind(days, d, w, k) {
+  const opt = kindOptions(days, d, w).find((o) => o.k === k);
+  if (!opt) return days;
+  return { ...days, [d]: opt.k === "plan" ? { k: "plan", src: opt.src } : { k: opt.k } };
 }
 
-/* Moving the long run trades places with whatever was on the target day. */
-export function moveLong(days, to) {
-  const from = longSlot(days);
-  if (!from || from === to || !(to in days)) return days;
-  if (PLAN[days[from].src]?.k === "race") return days;
+/* Drag and drop: the two days trade workouts. Race day stays put. */
+export function moveDay(days, from, to) {
+  if (from === to || !(from in days) || !(to in days)) return days;
+  if (isRace(days, from) || isRace(days, to)) return days;
   return { ...days, [from]: days[to], [to]: days[from] };
+}
+export const moveLong = (days, to) => moveDay(days, longSlot(days), to);
+
+/* The step whose length changes when the miles do: the last easy distance
+ * step (a cool-down, or the main easy part of a steady or long run), never
+ * the marathon-pace or threshold work. */
+function adjustable(steps) {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    if (s[0] !== "r" && s[1] === "d" && (s[3] == null || s[3] < 145)) return s;
+  }
+  return null;
+}
+
+/* Miles for a run, minutes for anything else. A long run can't go under 8
+ * miles, so trimming it never quietly removes it. A hard day can't lose
+ * more than its easy cool-down. */
+export function amountSpec(a, iso) {
+  if (isRest(a)) return null;
+  const r = resolve(a, iso);
+  if (r.race) return null;
+  if (!r.run) return { unit: "min", step: 5, min: 10, max: 180, value: r.min, base: r.baseMin };
+  let min = r.long ? 8 : 1;
+  if (r.kind === "quality" && r.g && STEPS[r.g]) {
+    const adj = adjustable(STEPS[r.g][2]);
+    if (adj) min = Math.max(1, Math.ceil((r.baseMi - adj[2] + 0.25) * 2) / 2);
+  }
+  return { unit: "mi", step: 0.5, min, max: r.long ? 30 : 20, value: r.mi, base: r.baseMi };
+}
+
+export function setAmount(days, d, value) {
+  const a = days[d], spec = amountSpec(a, d);
+  if (!spec) return days;
+  const v = Math.min(spec.max, Math.max(spec.min, Math.round(value / spec.step) * spec.step));
+  const next = { ...a };
+  delete next.mi; delete next.min;
+  if (v !== spec.base) next[spec.unit] = v;
+  return { ...days, [d]: next };
+}
+
+/* Hard days the day before or after the long run (Mary confirms those). */
+export function hardNextToLong(days) {
+  const L = longSlot(days);
+  if (!L) return [];
+  return Object.keys(days).sort().filter((d) => Math.abs(diffDays(d, L)) === 1 && dropClass(days[d], d) === "hard");
+}
+
+/* ---------- the workout that goes on the watch ---------- */
+
+const scaleHr = (v, lt) => (v == null ? v : Math.round(v * lt / BASE_LT));
+function scaleSteps(steps, lt) {
+  return steps.map((s) => s[0] === "r" ? ["r", s[1], scaleSteps(s[2], lt)]
+    : [s[0], s[1], s[2], scaleHr(s[3], lt), scaleHr(s[4], lt), s[5]]);
+}
+
+/* What one day should put on the watch: { name, custom, def } or null for
+ * rest, alt cardio and walk days. def is [sport, description, steps] for
+ * building that workout if the person's Garmin doesn't have it yet. custom
+ * means the miles or minutes were changed, so the plan's own version can't
+ * be used. */
+export function garminWant(a, iso, lt = BASE_LT) {
+  if (isRest(a)) return null;
+  const r = resolve(a, iso);
+  if (a.k === "easy") {
+    const steps = [["warmup", "d", 0.5, null, null, "Settle in"], ["interval", "d", Math.max(0.25, r.mi - 0.5), 125, 143, "HR only"]];
+    return { name: `SHAM // Z2 ${fmtNum(r.mi)} MI`, custom: true,
+      def: ["running", "Hold HR 125 to 143 and let pace fall where it falls.", scaleSteps(steps, lt)] };
+  }
+  if (a.k !== "plan" || !r.g || !STEPS[r.g]) return null;
+  const [sport, desc, steps0] = STEPS[r.g];
+  const steps = JSON.parse(JSON.stringify(steps0));
+  const run = sport === "running";
+  if (!r.changed) return { name: r.g, custom: false, def: [sport, desc, run ? scaleSteps(steps, lt) : steps] };
+  let name;
+  if (!run) {
+    for (const s of steps) if (s[1] === "t") s[2] = r.min * 60;
+    name = /BIKE EASY \d+ MIN$/.test(r.g) ? r.g.replace(/\d+ MIN$/, `${r.min} MIN`) : `${r.g} @ ${r.min} MIN`;
+  } else {
+    const adj = adjustable(steps);
+    if (adj) adj[2] = Math.max(0.25, Math.round((adj[2] + r.mi - r.baseMi) * 100) / 100);
+    name = /^SHAM \/\/ (Z2|LONG) [\d.]+ MI$/.test(r.g) ? r.g.replace(/[\d.]+ MI$/, `${fmtNum(r.mi)} MI`) : `${r.g} @ ${fmtNum(r.mi)} MI`;
+  }
+  return { name, custom: true, def: [sport, `${desc} Set to ${fmtNum(run ? r.mi : r.min)} ${run ? "mi" : "min"} in the Shamrock app.`,
+    run ? scaleSteps(steps, lt) : steps] };
 }
 
 /* ===================== locked weeks ===================== */
@@ -188,20 +333,20 @@ export function lockedDays(rec) {
   return days;
 }
 
-/* The week that governs a date for one person: their locked week, or the
- * full plan if they started before that week and never locked it. */
-export function governing(weeks, start, w) {
+/* The week that governs a date: the locked week, or the plan's week if it
+ * was never locked. Same for both of you, from week 1 on. */
+export function governing(weeks, w) {
   const rec = weeks?.[w];
   const locked = lockedDays(rec);
   if (locked) return { days: locked, locked: true, auto: !!rec.auto, rec };
-  if (start && w > weekOf(start) && inPlan(w)) return { days: defaultWeek(w), locked: false, auto: true, rec: null };
+  if (inPlan(w)) return { days: defaultWeek(w), locked: false, auto: true, rec: null };
   return null;
 }
 
-/* Whether a past week should be written down as auto-locked now. Only weeks
- * that have already begun, after the person's first week. */
-export function needsAutoLock(weeks, start, w, today) {
-  return !!start && w > weekOf(start) && w <= weekOf(today) && inPlan(w) && !weeks?.[w]?.lockedAt;
+/* Whether a week that has already begun should be written down as the
+ * plan's week (so the swap has a record to attach to). */
+export function needsAutoLock(weeks, w, today) {
+  return inPlan(w) && w <= weekOf(today) && !weeks?.[w]?.lockedAt;
 }
 
 /* ===================== judging a day ===================== */
@@ -220,8 +365,8 @@ export const canLog = (iso, today, hour) =>
   iso === today || (iso === addDays(today, -1) && hour < GRACE_HOUR);
 
 /* before | rest-future | future | today | grace | done | rest | miss */
-export function dayStatus({ iso, a, today, hour, logRec, gm, start }) {
-  if (!start || iso < start) return "before";
+export function dayStatus({ iso, a, today, hour, logRec, gm, start = SEASON_START }) {
+  if (iso < start) return "before";
   if (!a) return iso > today ? "future" : "before";
   const r = resolve(a, iso);
   if (r.rest) return iso <= today ? "rest" : "rest-future";
@@ -239,7 +384,7 @@ export const isGreen = (s) => s === "done" || s === "rest";
  * head-to-head numbers, and each week's row of dots. */
 export function season(p, { now = Date.now() } = {}) {
   const { iso: today, hour } = clock(p.tz, now);
-  const start = p.start || null;
+  const start = SEASON_START;
   const weeks = p.weeks || {}, log = p.log || {}, gdays = p.garmin?.days || {};
   const status = {}, assign = {};
   const out = { today, hour, start, status, assign, workouts: 0, due: 0, misses: 0,
@@ -247,7 +392,7 @@ export function season(p, { now = Date.now() } = {}) {
 
   const last = today < RACE_DAY ? today : RACE_DAY;
   for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
-    const g = governing(weeks, start, w);
+    const g = governing(weeks, w);
     for (const d of weekDates(w)) {
       const a = g ? g.days[d] : null;
       assign[d] = a;

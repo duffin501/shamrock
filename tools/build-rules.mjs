@@ -52,6 +52,8 @@ const shamrock = {
         "$d": {
           "k": { ".validate": `newData.isString() && ${unlockedOrSame}` },
           "src": { ".validate": `newData.isString() && ${unlockedOrSame}` },
+          "mi": { ".validate": `newData.isNumber() && newData.val() > 0 && newData.val() <= 30 && ${unlockedOrSame}` },
+          "min": { ".validate": `newData.isNumber() && newData.val() > 0 && newData.val() <= 240 && ${unlockedOrSame}` },
           "$other": { ".validate": false }
         }
       },
