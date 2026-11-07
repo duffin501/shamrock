@@ -5,8 +5,11 @@
  * Reads the last 10 days for both people (Mary's own account, Jon through his
  * profile, the way the 75 Hard totals were pulled) plus each marathon race
  * prediction. Older days are already stored, and 10 days keeps the output small.
+ * Jon's race prediction is NOT readable from Mary's account (checked 7 Nov
+ * 2026: Garmin returns her own numbers), so his comes from the app's Us tab.
+ * Starts with a top-level await so the javascript tool waits for the result.
  * Endpoints are the ones Garmin Connect's own web app used in Nov 2026. */
-(async () => {
+await (async () => {
   const JON = "b2cb0be6-a324-4594-879f-3169a43abde8";
   const START = "2026-11-02", END = "2027-03-21", WINDOW = 10;
   const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -25,8 +28,8 @@
     return r.json();
   };
 
-  let me;
-  try { me = (await j("/gc-api/userprofile-service/socialProfile")).displayName; }
+  let me, myPk;
+  try { const prof = await j("/gc-api/userprofile-service/socialProfile"); me = prof.displayName; myPk = prof.profileId; }
   catch (e) { return JSON.stringify({ error: "Garmin signed out or profile failed: " + e.message }); }
 
   const notes = [];
@@ -63,6 +66,8 @@
     try {
       const p = await j(`/gc-api/metrics-service/metrics/racepredictions/latest/${name}`);
       const x = Array.isArray(p) ? p[p.length - 1] : p;
+      // Asked for someone else, Garmin quietly answers with your own numbers.
+      if (name !== me && x?.userId === myPk) { notes.push("jon pred not visible"); return null; }
       return Math.round(x?.timeMarathon || x?.marathonTime || 0) || null;
     } catch (e) { notes.push("pred " + e.message); return null; }
   }
