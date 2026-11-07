@@ -200,6 +200,17 @@ t("season counts from week 1", () => {
   assert.equal(none.status["2026-11-09"], "miss", "nobody locked: still the plan's week");
   assert.equal(none.status["2026-11-10"], "today");
 });
+t("hours: every Garmin activity, plan length for tapped days without one", () => {
+  const p = { tz: "America/New_York", weeks: { [W1]: { lockedAt: 1, days: defaultWeek(W1) } },
+    log: { "2026-11-09": { done: true }, "2026-11-10": { done: true } },
+    garmin: { days: { "2026-11-06": { r: 10, lr: 10, n: 1, t: 6000 }, "2026-11-11": { r: 5, lr: 5, n: 2, t: 2700 },
+      "2026-11-12": { r: 0, lr: 0, n: 1, t: 1800 } } } };
+  const s = season(p, { now: Date.parse("2026-11-12T18:00:00Z") });
+  // 9 Nov Z2 3 mi tapped (30 min est), 10 Nov bike 45 tapped (45 min est),
+  // 11 Nov Garmin 45 min, 12 Nov a 30 min Garmin walk. 6 Nov is before week 1.
+  assert.equal(s.hours, 2.5);
+  assert.equal(s.hoursEst, 1.3);
+});
 t("garmin zero day does not erase a tapped run", () => {
   const p = { tz: "America/New_York", log: { "2026-11-09": { done: true } },
     garmin: { days: { "2026-11-09": { r: 0, lr: 0, n: 0 } } } };

@@ -31,7 +31,7 @@ const {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut,
   onAuthStateChanged, setPersistence, browserLocalPersistence
 } = await import(SDK + "firebase-auth.js");
-const { getDatabase, ref, onValue, set, update, remove } = await import(SDK + "firebase-database.js");
+const { getDatabase, ref, onValue, get, set, update, remove } = await import(SDK + "firebase-database.js");
 
 const ROOT = "shamrock";
 const DEV = !!window.__DEV__;
@@ -48,7 +48,10 @@ const S = {
   seg: "this",            // week tab: this | next
   who: null,              // week tab: whose week
   drafts: {}, open: null, swap: null,
-  sheet: null, err: null, online: true, prompted: false
+  sheet: null, err: null, online: true, prompted: false,
+  upload: null,           // "Resizing" / "Saving" while today's photo goes up
+  lightbox: null,         // { id, iso, src, cap } for a photo shown full size
+  picBack: 0              // Us tab photo log: how many weeks back
 };
 let SEASON = {};
 let drag = null;   // a planner day being dragged (see "drag and drop" below)
@@ -137,6 +140,7 @@ async function settle() {
     S.me = found; S.phase = "ready";
     if (!S.who) S.who = found;
     compute();
+    watchTodayPics();
     autoLock();
     sundayPrompt();
     return render();
@@ -178,6 +182,114 @@ function fail(e) {
   render();
   setTimeout(() => { S.err = null; render(); }, 6000);
 }
+
+/* ===================== daily photo log =====================
+ * The 75 Hard progress photo carries on here (Mary, 7 Nov). It uses the same
+ * place in the database, /pics/{person}/{date} = { full, thumb }, so the log
+ * runs on from day 75 without a gap, and 75 Hard's rules already cover it:
+ * each person writes their own, both can read. A ~900 px JPEG plus a 220 px
+ * thumb, sized the way 75 Hard does it. Only thumbs on screen are fetched; the
+ * full photo loads when you tap one. */
+const PIC_ROOT = "pics";
+const FULL_PX = 900, FULL_BUDGET = 150_000, THUMB_PX = 220, THUMB_BUDGET = 22_000;
+const PICS = new Map();          // "id|iso|thumb" or "id|iso|full" -> data URL, "" = none
+const picLoading = new Set();
+let picRenderTimer = 0;
+const picRender = () => { clearTimeout(picRenderTimer); picRenderTimer = setTimeout(render, 40); };
+
+let picUnsubs = [], picSig = "";
+function watchTodayPics() {
+  const want = ids().map((id) => `${id}|${SEASON[id]?.today}`);
+  const sig = want.join(",");
+  if (sig === picSig) return;
+  picSig = sig;
+  picUnsubs.forEach((u) => { try { u(); } catch {} });
+  picUnsubs = want.map((k) => {
+    const [id, iso] = k.split("|");
+    return onValue(ref(db, `${PIC_ROOT}/${id}/${iso}/thumb`), (snap) => {
+      PICS.set(`${id}|${iso}|thumb`, snap.val() || "");
+      picRender();
+    }, () => PICS.set(`${id}|${iso}|thumb`, ""));
+  });
+}
+
+/* A thumb: the data URL, "" when that day has none, null while it loads. */
+function thumbOf(id, iso) {
+  const k = `${id}|${iso}|thumb`;
+  if (PICS.has(k)) return PICS.get(k);
+  if (!picLoading.has(k)) {
+    picLoading.add(k);
+    get(ref(db, `${PIC_ROOT}/${id}/${iso}/thumb`))
+      .then((s) => PICS.set(k, s.val() || ""), () => PICS.set(k, ""))
+      .finally(() => { picLoading.delete(k); picRender(); });
+  }
+  return null;
+}
+
+async function fullOf(id, iso) {
+  const k = `${id}|${iso}|full`;
+  if (PICS.has(k)) return PICS.get(k);
+  try { const s = await get(ref(db, `${PIC_ROOT}/${id}/${iso}/full`)); PICS.set(k, s.val() || ""); }
+  catch { PICS.set(k, ""); }
+  return PICS.get(k);
+}
+
+async function decodeImage(file) {
+  try { return await createImageBitmap(file, { imageOrientation: "from-image" }); }
+  catch { /* HEIC and friends fall through to the element decoder */ }
+  return await new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("That image could not be read")); };
+    img.src = url;
+  });
+}
+function encodeImage(src, maxPx, budget) {
+  const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+  const k = Math.min(1, maxPx / Math.max(w0, h0));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w0 * k)); c.height = Math.max(1, Math.round(h0 * k));
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  let q = 0.8, out = c.toDataURL("image/jpeg", q);
+  while (out.length > budget && q > 0.34) { q -= 0.08; out = c.toDataURL("image/jpeg", q); }
+  return out;
+}
+
+async function savePhoto(file) {
+  const iso = SEASON[S.me].today;
+  S.upload = "Resizing"; render();
+  try {
+    const src = await decodeImage(file);
+    const full = encodeImage(src, FULL_PX, FULL_BUDGET), thumb = encodeImage(src, THUMB_PX, THUMB_BUDGET);
+    src.close?.();
+    S.upload = "Saving"; render();
+    await set(ref(db, `${PIC_ROOT}/${S.me}/${iso}`), { full, thumb });
+    PICS.set(`${S.me}|${iso}|full`, full); PICS.set(`${S.me}|${iso}|thumb`, thumb);
+    S.upload = null; render();
+  } catch (e) { S.upload = null; fail(e); }
+}
+
+async function removePhoto() {
+  const iso = SEASON[S.me].today;
+  if (!window.confirm("Remove today's photo?")) return;
+  try {
+    await remove(ref(db, `${PIC_ROOT}/${S.me}/${iso}`));
+    PICS.set(`${S.me}|${iso}|thumb`, ""); PICS.delete(`${S.me}|${iso}|full`);
+    render();
+  } catch (e) { fail(e); }
+}
+
+async function zoomPhoto(id, iso) {
+  S.lightbox = { id, iso, src: thumbOf(id, iso) || "", cap: `${nameOf(id)} · ${longDay(iso)}` };
+  render();
+  const full = await fullOf(id, iso);
+  if (full && S.lightbox?.id === id && S.lightbox?.iso === iso) { S.lightbox.src = full; render(); }
+}
+
+// One file picker for the whole app, kept outside the re-rendered tree.
+const shooter = Object.assign(document.createElement("input"), { type: "file", accept: "image/*", hidden: true });
+document.body.append(shooter);
+shooter.addEventListener("change", () => { const f = shooter.files?.[0]; shooter.value = ""; if (f) savePhoto(f); });
 
 /* ===================== writes ===================== */
 
@@ -244,7 +356,8 @@ async function saveLt(v) {
  *   their local today, and each locked week from this week on, with the
  *   Garmin workout name for every plan day and the stored calendar base.
  * shamrockIngest(result): stores what came back. Days are
- *   [run miles, longest run, activity count, longest run seconds].
+ *   [run miles, longest run, activity count, longest run seconds,
+ *   seconds of all activities].
  *   You can only store your own result; Mary's also carries Jon's runs as a
  *   fallback. The Firebase rules enforce who writes what. */
 window.shamrockSyncInput = () => {
@@ -288,7 +401,14 @@ window.shamrockIngest = async (payload) => {
     let n = 0;
     for (const [d, v] of Object.entries(x.days || {})) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(v)) continue;
-      ups[`garmin/${id}/days/${d}`] = { r: +(+v[0] || 0).toFixed(2), lr: +(+v[1] || 0).toFixed(2), n: +v[2] || 0, ls: Math.round(+v[3] || 0) };
+      // Field by field, so an older copy of the script (no activity time, v[4])
+      // can't wipe the time a newer run already stored for that day.
+      const base = `garmin/${id}/days/${d}/`;
+      ups[base + "r"] = +(+v[0] || 0).toFixed(2);
+      ups[base + "lr"] = +(+v[1] || 0).toFixed(2);
+      ups[base + "n"] = +v[2] || 0;
+      ups[base + "ls"] = Math.round(+v[3] || 0);
+      if (v.length > 4) ups[base + "t"] = Math.round(+v[4] || 0);
       n++;
     }
     ups[`garmin/${id}/at`] = at;
@@ -424,6 +544,8 @@ function screenApp() {
       ${navBtn("today", "Today")}${navBtn("week", "Week")}${navBtn("us", "Us")}
     </nav>
     ${S.sheet ? sheet() : ""}
+    ${S.lightbox ? `<div class="lb" data-act="lb-close" role="dialog" aria-label="Photo">
+      ${S.lightbox.src ? `<img src="${esc(S.lightbox.src)}" alt="Daily photo">` : ""}<div class="cap">${esc(S.lightbox.cap)}</div></div>` : ""}
     ${S.err ? `<div class="toast" role="alert">${esc(S.err)}</div>` : ""}
   </div>`;
 }
@@ -465,6 +587,7 @@ function tabToday() {
   }
 
   out.push(hero());
+  out.push(photoCard());
 
   const w = weekOf(s.today);
   if (inPlan(w)) {
@@ -504,6 +627,45 @@ function hero() {
     <p class="meta mono">${esc(meta(r))}</p>
     <p class="note">${esc(noteFor(r, S.me))}</p>
     ${action}
+  </section>`;
+}
+
+/* Today's photo for both of you, side by side. */
+function photoCard() {
+  const me = S.me, o = other(), d = SEASON[me].today, od = SEASON[o].today;
+  const mine = thumbOf(me, d), theirs = thumbOf(o, od);
+  const tile = (id, iso, src, alt) => src
+    ? `<button class="pic" data-act="zoom" data-id="${id}" data-d="${iso}"><img src="${esc(src)}" alt="${esc(alt)}"></button>`
+    : `<span class="pic empty">${src === null ? "" : "No photo yet"}</span>`;
+  const btn = S.upload
+    ? `<button class="primary sm" disabled>${esc(S.upload)}...</button>`
+    : `<button class="${mine ? "ghost" : "primary"} sm" data-act="shoot">${mine ? "Replace" : "Add photo"}</button>`
+      + (mine ? `<button class="link" data-act="unshoot">Remove</button>` : "");
+  return `<section class="block photos">
+    <div class="block-head"><p class="eyebrow">Daily photo</p><p class="eyebrow">The log goes on</p></div>
+    <div class="pics2">
+      <div class="pcol">${tile(me, d, mine, "Your photo today")}<span class="pname p-${me}">You</span><div class="pbtns">${btn}</div></div>
+      <div class="pcol">${tile(o, od, theirs, `${nameOf(o)}'s photo today`)}<span class="pname p-${o}">${esc(nameOf(o))}</span></div>
+    </div>
+  </section>`;
+}
+
+/* The Us tab's photo log: one week, both of you, tap to see one full size. */
+function photoLog() {
+  const end = addDays(SEASON[S.me].today, -7 * S.picBack);
+  const dates = [6, 5, 4, 3, 2, 1, 0].map((i) => addDays(end, -i));
+  const head = `<div class="plog-row head"><span></span>${dates.map((d) =>
+    `<span class="pday"><b>${DOW[dowIdx(d)][0]}</b>${dayNum(d)}</span>`).join("")}</div>`;
+  const rows = ids().map((id) => `<div class="plog-row"><span class="pname p-${id}">${esc(nameOf(id))}</span>${dates.map((d) => {
+    const t = thumbOf(id, d);
+    return t ? `<button class="pcell" data-act="zoom" data-id="${id}" data-d="${d}" aria-label="${esc(nameOf(id))}, ${esc(shortDate(d))}"><img src="${esc(t)}" alt=""></button>`
+      : `<span class="pcell ${t === null ? "loading" : "empty"}"></span>`;
+  }).join("")}</div>`).join("");
+  return `<section class="block plog">
+    <div class="block-head"><p class="eyebrow">Photo log · ${esc(shortDate(dates[0]))} to ${esc(shortDate(dates[6]))}</p>
+      <p class="plog-nav"><button class="link" data-act="pic-back">Earlier</button>${S.picBack ? `<button class="link" data-act="pic-fwd">Later</button>` : ""}</p></div>
+    ${head}${rows}
+    <p class="note small">Picks up where 75 Hard left off. Tap a photo to see it full size.</p>
   </section>`;
 }
 
@@ -738,6 +900,7 @@ function tabUs() {
     row("Workouts", started(sa) ? `${sa.workouts}<small>of ${sa.due}</small>` : "–", started(sb) ? `${sb.workouts}<small>of ${sb.due}</small>` : "–", cmp(sa.workouts, sb.workouts, "high"), "done on the day"),
     row("Missed days", started(sa) ? sa.misses : "–", started(sb) ? sb.misses : "–", started(sa) && started(sb) ? cmp(sa.misses, sb.misses, "low") : "", "red days"),
     row("Miles", `${n(sa.miles)}${sa.milesEst ? "<small>part est.</small>" : ""}`, `${n(sb.miles)}${sb.milesEst ? "<small>part est.</small>" : ""}`, cmp(sa.miles, sb.miles, "high"), "since 9 Nov"),
+    row("Hours", `${n(sa.hours)}<small>hrs</small>${sa.hoursEst ? "<small>part est.</small>" : ""}`, `${n(sb.hours)}<small>hrs</small>${sb.hoursEst ? "<small>part est.</small>" : ""}`, cmp(sa.hours, sb.hours, "high"), "runs, walks, bike, alt"),
     row("Longest run", `${n(sa.longest)}<small>mi</small>`, `${n(sb.longest)}<small>mi</small>`, cmp(sa.longest, sb.longest, "high"), "single run"),
     row("Long runs", started(sa) ? `${sa.longDone}<small>of ${sa.longDue}</small>` : "–", started(sb) ? `${sb.longDone}<small>of ${sb.longDue}</small>` : "–", cmp(sa.longDone, sb.longDone, "high"), "the non-negotiable"),
     row("Marathon est.", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "latest long run, Riegel")
@@ -768,6 +931,7 @@ function tabUs() {
       ${rows}
       <ul class="gsync">${ids().map(garminLine).join("")}</ul>
     </section>
+    ${photoLog()}
     <section class="block">
       <div class="block-head"><p class="eyebrow">The season</p><p class="eyebrow legend"><i class="lg done"></i>green <i class="lg miss"></i>red</p></div>
       ${seasonGrid()}
@@ -861,6 +1025,12 @@ root.addEventListener("click", (e) => {
       return spec ? change(w, setAmount(draft(w), d, spec.value + spec.step * +el.dataset.dir)) : undefined;
     }
     case "amt-reset": { const spec = amountSpec(draft(w)[d], d); return spec ? change(w, setAmount(draft(w), d, spec.base)) : undefined; }
+    case "shoot": return shooter.click();
+    case "unshoot": return removePhoto();
+    case "zoom": return zoomPhoto(el.dataset.id, d);
+    case "lb-close": S.lightbox = null; return render();
+    case "pic-back": S.picBack++; return render();
+    case "pic-fwd": S.picBack = Math.max(0, S.picBack - 1); return render();
     case "rep-preset": return change(w, setReps(draft(w), d, { n: +el.dataset.n, s: +el.dataset.s }));
     case "rep": {
       const v = repStep(draft(w)[d], el.dataset.f, +el.dataset.dir);

@@ -529,6 +529,11 @@ export function dayStatus({ iso, a, today, hour, logRec, gm, start = SEASON_STAR
 }
 export const isGreen = (s) => s === "done" || s === "rest";
 
+/* How long a day takes when Garmin has no time for it: minutes for a bike,
+ * walk or alt day, about 10 minutes a mile for a run. */
+export const RUN_MIN_PER_MI = 10;
+export const planHours = (r) => (r.rest ? 0 : r.run ? (r.mi || 0) * RUN_MIN_PER_MI / 60 : (r.min || 0) / 60);
+
 /* ===================== one person, whole season ===================== */
 
 /* Everything about one person in one pass: the status of every date, the
@@ -539,7 +544,7 @@ export function season(p, { now = Date.now() } = {}) {
   const weeks = p.weeks || {}, log = p.log || {}, gdays = p.garmin?.days || {};
   const status = {}, assign = {};
   const out = { today, hour, start, status, assign, workouts: 0, due: 0, misses: 0,
-    miles: 0, milesEst: 0, longest: 0, longestEst: false, longDone: 0, longDue: 0 };
+    miles: 0, milesEst: 0, longest: 0, longestEst: false, longDone: 0, longDue: 0, hours: 0, hoursEst: 0 };
 
   const last = today < RACE_DAY ? today : RACE_DAY;
   for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
@@ -565,8 +570,14 @@ export function season(p, { now = Date.now() } = {}) {
         out.miles += r.mi || 0; out.milesEst += r.mi || 0;
         if ((r.mi || 0) > out.longest) { out.longest = r.mi; out.longestEst = true; }
       }
+      // Hours: every Garmin activity that day (runs, walks, bike, alt, all of
+      // it). A day tapped done with no Garmin time counts at its plan length.
+      if ((gm?.t || 0) > 0) out.hours += gm.t / 3600;
+      else if (s === "done" && r) { const h = planHours(r); out.hours += h; out.hoursEst += h; }
     }
   }
+  out.hours = Math.round(out.hours * 10) / 10;
+  out.hoursEst = Math.round(out.hoursEst * 10) / 10;
   out.miles = Math.round(out.miles * 10) / 10;
   out.longest = Math.round(out.longest * 10) / 10;
   return out;

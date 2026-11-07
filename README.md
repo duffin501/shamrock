@@ -56,10 +56,27 @@ under, aim for 3:50.
 
 ## The numbers
 
-Workouts done on the day, missed days, miles since 9 Nov, longest single run, long
-runs done, and a marathon estimate from the latest long run, with the change since
-the long run before it. A week's long run is its longest Garmin run if that was 8
-miles or more.
+Workouts done on the day, missed days, miles since 9 Nov, hours logged, longest
+single run, long runs done, and a marathon estimate from the latest long run, with
+the change since the long run before it. A week's long run is its longest Garmin run
+if that was 8 miles or more.
+
+Hours are every Garmin activity since 9 Nov (runs, walks, bike, alt cardio, anything
+on the watch), from the day's total activity time the sync stores as `t`. A day
+tapped done with no Garmin time counts at its plan length (minutes for a bike, walk
+or alt day, about 10 minutes a mile for a run) and the board says "part est."
+Mary's sync stores Jon's time too, so Jon's older copy of the script doesn't matter;
+the app writes Garmin days field by field so his runs never wipe it.
+
+## Daily photo
+
+The 75 Hard progress photo carries on (Mary, 7 Nov). The Today tab has today's photo
+for both of you, with Add, Replace and Remove for your own. The Us tab has a photo
+log, a week at a time (Earlier and Later), and a tap shows the full photo. Photos
+live where 75 Hard kept them, `/pics/{person}/{date}` as `{ full, thumb }` (a ~900 px
+JPEG and a 220 px thumb), so the log runs on from day 75 with no gap. 75 Hard's rules
+already cover it: each person writes their own, both read. Nothing about a photo
+turns a day green or red.
 
 The estimate is Riegel's formula, the one most online race-time calculators use:
 time x (26.2 / miles)^1.06. It counts the distance as well as the pace, so the same

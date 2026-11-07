@@ -339,3 +339,29 @@ button.row:active{transform:scale(.99)}
 
 .savebar{font-size:13px; color:var(--ink-2); background:var(--surface-2); border-radius:12px; padding:10px 12px; margin:2px 0 4px}
 .savebar b{color:var(--ink); margin-right:4px}
+
+/* ===================== daily photo ===================== */
+.photos .pics2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+.pcol{display:flex; flex-direction:column; align-items:center; gap:6px}
+.pic{display:block; width:100%; aspect-ratio:1; border-radius:12px; overflow:hidden; background:var(--surface-2); border:1px solid var(--rule)}
+.pic img{width:100%; height:100%; object-fit:cover; display:block}
+.pic.empty{display:grid; place-items:center; font-size:12.5px; color:var(--ink-3)}
+.pname{font-size:13px; font-weight:600; color:var(--p, var(--ink-2))}
+.pbtns{display:flex; align-items:center; gap:10px}
+.primary.sm{padding:8px 14px; font-size:14px; border-radius:12px}
+.ghost.sm{padding:7px 14px}
+.primary:disabled{opacity:.6}
+
+.plog-nav{display:flex; gap:14px}
+.plog-row{display:grid; grid-template-columns:44px repeat(7, 1fr); gap:4px; align-items:center; margin-bottom:4px}
+.plog-row .pname{font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pday{display:flex; flex-direction:column; align-items:center; font-family:"DM Mono",monospace; font-size:11px; color:var(--ink-3); line-height:1.2}
+.pday b{font-weight:500; color:var(--ink-2)}
+.pcell{display:block; aspect-ratio:1; border-radius:6px; overflow:hidden; background:var(--surface-2); border:1px solid var(--rule)}
+.pcell img{width:100%; height:100%; object-fit:cover; display:block}
+.pcell.empty{border-style:dashed; background:transparent}
+.pcell.loading{opacity:.5}
+
+.lb{position:fixed; inset:0; z-index:50; background:rgba(8,10,12,.94); display:grid; place-items:center; padding:16px; cursor:zoom-out}
+.lb img{max-width:min(96vw, 900px); max-height:82vh; width:auto; height:auto; border-radius:6px}
+.lb .cap{position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 24px); text-align:center; color:#EAE7E0; font-size:14px}

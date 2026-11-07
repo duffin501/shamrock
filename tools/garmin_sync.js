@@ -9,7 +9,8 @@
  *
  * 1. Pulls the last 10 days of activities for the account owner (and, on
  *    Mary's account, Jon through his profile as a fallback). Each day is
- *    [run miles, longest run miles, activity count, longest run seconds].
+ *    [run miles, longest run miles, activity count, longest run seconds,
+ *    seconds of every activity that day (for hours)].
  *
  * 2. Makes the Garmin calendar match the app's week (this week and next),
  *    so the right structured workout is on the watch. Each day carries the
@@ -99,19 +100,20 @@ await (async () => {
   }
   function summarize(list) {
     const days = {};
-    for (let d = since; d <= lastFull; d = add(d, 1)) days[d] = [0, 0, 0, 0];
+    for (let d = since; d <= lastFull; d = add(d, 1)) days[d] = [0, 0, 0, 0, 0];
     for (const a of list) {
       const d = String(a.startTimeLocal || "").slice(0, 10);
       if (!d || d < since || d > END) continue;
       const mi = (a.distance || 0) / 1609.344;
-      const x = days[d] || (days[d] = [0, 0, 0, 0]);
+      const x = days[d] || (days[d] = [0, 0, 0, 0, 0]);
       x[2]++;
+      x[4] += a.duration || a.movingDuration || 0;   // every activity counts toward hours
       if (/running/.test(a.activityType?.typeKey || "")) {
         x[0] += mi;
         if (mi > x[1]) { x[1] = mi; x[3] = Math.round(a.duration || a.movingDuration || 0); }
       }
     }
-    for (const d in days) days[d] = [+days[d][0].toFixed(2), +days[d][1].toFixed(2), days[d][2], days[d][3]];
+    for (const d in days) days[d] = [+days[d][0].toFixed(2), +days[d][1].toFixed(2), days[d][2], days[d][3], Math.round(days[d][4])];
     return days;
   }
   try { out[who] = { days: summarize(await activities(true)) }; } catch (e) { notes.push("pull " + e.message); }
