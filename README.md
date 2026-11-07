@@ -27,10 +27,25 @@ longest Garmin run if that was 8 miles or more.
 Garmin's own race predictor isn't used: Mary's account can't read Jon's (Garmin
 quietly returns hers instead).
 
-Miles, longest run and long-run pace come from Garmin. A scheduled Claude task on
-Mary's laptop reads both Garmin accounts each morning and calls `shamrockIngest()` on
-this page while she is signed in. Until a day has Garmin data, a tapped run counts at
-its plan distance and the board says "part est."
+Miles, longest run and long-run pace come from Garmin. Until a day has Garmin data, a
+tapped run counts at its plan distance and the board says "part est."
+
+## Garmin sync and the watch
+
+Each person's computer runs a scheduled Claude task twice a day ([docs/sync_task.md](docs/sync_task.md)):
+Mary at 0500 and 2130 Eastern, Jon at 0400 and 2000 Mountain ([docs/jon_setup.md](docs/jon_setup.md)).
+It runs [tools/garmin_sync.js](tools/garmin_sync.js) on a signed-in Garmin Connect tab, which
+
+- reads the last 10 days of activities into the app, and
+- makes that person's Garmin calendar match the weeks they locked, so the right
+  structured `SHAM //` workout is on the watch. The first time it sees a locked week it
+  records what the calendar already had (the "base"), then moves those same workouts.
+  That keeps each person's own versions, like Mary's 45 min bikes or Jon's HR-scaled runs.
+  Rest and alt cardio days are blank on the watch, and an easy run gets that week's
+  `SHAM // Z2 N MI`. Only `SHAM //` workouts from today forward are ever touched.
+
+Mary's run also reads Jon's activities as a backup. Garmin only lets each person
+change their own calendar, so Jon's watch needs his own task.
 
 ## Files
 
@@ -41,6 +56,8 @@ its plan distance and the board says "part est."
 | `app.js` | Screens, Firebase, the Garmin ingest hook. |
 | `tools/selftest.mjs` | `npm test` checks core.js. Run it after touching core or plan. |
 | `tools/build-rules.mjs` | Builds the `/shamrock` branch of the Firebase rules. |
+| `tools/garmin_sync.js` | Garmin activity pull plus watch-calendar sync, run by the scheduled task. |
+| `docs/` | The scheduled-task prompt and Jon's setup page. |
 
 ## Firebase
 

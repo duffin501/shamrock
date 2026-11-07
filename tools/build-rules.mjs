@@ -10,7 +10,8 @@
  * What it enforces:
  *  - Only the two of you can read anything.
  *  - Each person writes only their own people, weeks, log and manual rows.
- *  - Only Mary writes /garmin (her laptop runs the nightly pull for both).
+ *  - Each person writes their own /garmin side; Mary can also write Jon's
+ *    (her laptop pulls his runs as a fallback).
  *  - A locked week's lock time, days and swap can't be rewritten, the week
  *    can't be deleted, and the swap can only be set once. */
 
@@ -65,7 +66,13 @@ const shamrock = {
     "$d": { ".validate": `${isDate("$d")} && newData.hasChildren(['done','at'])` }
   })),
   "manual": per((id) => ({ ".write": owner(id) })),
-  "garmin": { ".write": owner("mary") }
+  // Each person's own Garmin task writes their side. Mary's laptop also
+  // pulls Jon's runs through her account as a fallback, so she can write his.
+  "garmin": {
+    "mary": { ".write": owner("mary") },
+    "jon": { ".write": `${owner("mary")} || ${owner("jon")}` },
+    "meta": { ".write": owner("mary") }
+  }
 };
 
 writeFileSync(join(repo, "rules.shamrock.json"), JSON.stringify({ shamrock }, null, 2) + "\n");

@@ -20,7 +20,7 @@ import {
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
   stepDown, stepUp, cycle, moveLong, lockedDays, governing, needsAutoLock,
   canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
-  hms, paceStr, longRunProjection
+  hms, paceStr, longRunProjection, easyMiles
 } from "./core.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.10.0/";
@@ -225,37 +225,73 @@ async function saveLt(v) {
   try { await set(ref(db, `${ROOT}/people/${S.me}/lt`), n); } catch (e) { fail(e); }
 }
 
-/* The nightly Garmin pull calls this from Mary's signed-in tab:
- *   await shamrockIngest({ mary: { days: { "2026-11-09": [3.1, 3.1, 1, 1710] } }, jon: {...} })
- * days are [run miles, longest single run, activity count, longest run
- * seconds]. Mary's account is the only one the rules let write here. */
+/* The Garmin sync (tools/garmin_sync.js, run by a scheduled Claude task on
+ * each person's computer; docs/sync_task.md) talks to the app through these.
+ *
+ * shamrockSyncInput(): what the Garmin side needs for the signed-in person:
+ *   their local today, and each locked week from this week on, with the
+ *   Garmin workout name for every plan day and the stored calendar base.
+ * shamrockIngest(result): stores what came back. Days are
+ *   [run miles, longest run, activity count, longest run seconds].
+ *   You can only store your own result; Mary's also carries Jon's runs as a
+ *   fallback. The Firebase rules enforce who writes what. */
+window.shamrockSyncInput = () => {
+  if (!S.me) throw new Error("not signed in");
+  const p = person(S.me), s = SEASON[S.me];
+  const cur = weekOf(s.today), weeks = [];
+  for (const w of [cur, addDays(cur, 7)]) {
+    if (!inPlan(w)) continue;
+    const days = lockedDays(p.weeks[w]);
+    if (!days) continue;
+    const out = {};
+    for (const d of weekDates(w)) {
+      const a = days[d] || { k: "rest" };
+      out[d] = a.k === "plan" ? { k: "plan", src: a.src, g: PLAN[a.src]?.g || "" } : { k: a.k };
+    }
+    weeks.push({ w, days: out, easy: `SHAM // Z2 ${easyMiles(w)} MI`, base: p.garmin?.base?.[w] || null });
+  }
+  return JSON.stringify({ who: S.me, today: s.today, alsoJon: S.me === "mary", weeks });
+};
+
 window.shamrockIngest = async (payload) => {
-  if (S.me !== "mary") throw new Error("sign in as Mary first");
+  if (!S.me) throw new Error("not signed in");
   if (typeof payload === "string") payload = JSON.parse(payload);
+  const who = payload?.who || S.me;
+  if (who !== S.me) throw new Error(`signed in as ${S.me}, but this result is for ${who}`);
   const at = now(), ups = {}, out = [];
   if (payload?.error) {
-    await set(ref(db, `${ROOT}/garmin/meta/fail`), { at, note: String(payload.error).slice(0, 200) });
+    ups[`garmin/${who}/fail`] = { at, note: String(payload.error).slice(0, 200) };
+    await update(ref(db, ROOT), ups);
     return "recorded failure";
   }
   for (const id of ids()) {
     const x = payload?.[id];
-    if (!x) continue;
+    if (!x || (id !== S.me && S.me !== "mary")) continue;
     let n = 0;
     for (const [d, v] of Object.entries(x.days || {})) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(v)) continue;
       ups[`garmin/${id}/days/${d}`] = { r: +(+v[0] || 0).toFixed(2), lr: +(+v[1] || 0).toFixed(2), n: +v[2] || 0, ls: Math.round(+v[3] || 0) };
       n++;
     }
-    // Retired: Garmin's race predictor (replaced by long-run pace, 7 Nov 2026).
-    ups[`garmin/${id}/pred`] = null;
-    ups[`garmin/${id}/hist`] = null;
+    ups[`garmin/${id}/at`] = at;
     out.push(`${id}:${n}d`);
   }
-  ups["garmin/meta"] = { at, note: String(payload?.note || "").slice(0, 200), fail: null };
+  ups[`garmin/${who}/fail`] = null;
+  for (const [w, m] of Object.entries(payload?.base || {})) {
+    ups[`garmin/${who}/base/${w}`] = Object.fromEntries(Object.entries(m).map(([d, v]) => [d, v || "-"]));
+  }
+  if (payload?.cal) {
+    const c = payload.cal;
+    ups[`garmin/${who}/cal`] = { at, added: +c.added || 0, removed: +c.removed || 0, failed: +c.failed || 0,
+      missing: (c.missing || []).join(", ").slice(0, 300), through: String(c.through || "") };
+  }
+  if (payload?.note) ups[`garmin/${who}/note`] = String(payload.note).slice(0, 200);
   await update(ref(db, ROOT), ups);
-  return "ok " + out.join(" ");
+  const c = payload?.cal;
+  return "ok " + out.join(" ") + (c ? ` cal+${c.added || 0}-${c.removed || 0}${c.failed ? " failed" + c.failed : ""}${c.missing?.length ? " missing:" + c.missing.length : ""}` : "") + (payload?.again ? " again" : "");
 };
-window.shamrockReady = () => S.phase === "ready" && S.me === "mary";
+window.shamrockReady = () => S.phase === "ready" && !!S.me;
+window.shamrockWho = () => S.me;
 window.shamrockState = () => JSON.stringify(Object.fromEntries(ids().map((id) => {
   const s = SEASON[id] || {};
   return [id, { today: s.today, workouts: s.workouts, due: s.due, misses: s.misses, miles: s.miles, longest: s.longest }];
@@ -639,17 +675,30 @@ function tabUs() {
     row("Marathon pace", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "long run pace × 26.2")
   ].join("");
 
-  const gm = S.data.garmin?.meta;
-  const synced = gm?.at ? `Garmin synced ${esc(timeIn(person(S.me).tz, gm.at))}` : "Garmin hasn't synced yet. Tapped runs count at plan distance until it does.";
-  const failed = gm?.fail?.at && (!gm.at || gm.fail.at > gm.at);
-  const stale = failed || (gm?.at && now() - gm.at > 36 * 3600000);
+  const tz = person(S.me).tz;
+  const garminLine = (id) => {
+    const g = person(id).garmin || {}, nm = esc(nameOf(id));
+    const at = g.at || (id === "mary" ? S.data.garmin?.meta?.at : 0) || 0;
+    const fail = g.fail?.at && g.fail.at > at ? g.fail : null;
+    const parts = [];
+    if (fail) parts.push(`<span class="warn">last try ${esc(timeIn(tz, fail.at))} failed: ${esc(fail.note)}</span>`);
+    parts.push(at ? `runs synced ${esc(timeIn(tz, at))}${now() - at > 36 * 3600000 ? ' <span class="warn">(over a day old)</span>' : ""}` : "runs not synced yet");
+    if (g.cal?.at) {
+      parts.push(`watch calendar ${esc(timeIn(tz, g.cal.at))}${g.cal.through ? ` through ${esc(shortDate(g.cal.through))}` : ""}`);
+      if (g.cal.missing) parts.push(`<span class="warn">missing on Garmin: ${esc(g.cal.missing.replace(/SHAM \/\/ /g, ""))}</span>`);
+      if (g.cal.failed) parts.push(`<span class="warn">${g.cal.failed} calendar change(s) failed</span>`);
+    } else {
+      parts.push(id === "jon" ? "watch calendar not linked yet" : "watch calendar not synced yet");
+    }
+    return `<li><b class="p-${id}">${nm}</b> ${parts.join(" · ")}</li>`;
+  };
 
   const me = person(S.me);
 
   return `<section class="block h2h">
       <div class="h2h-head"><span class="p-${a}">${esc(nameOf(a))}</span><span></span><span class="p-${b}">${esc(nameOf(b))}</span></div>
       ${rows}
-      <p class="note small ${stale ? "warn" : ""}">${synced}${failed ? ` Last try ${esc(timeIn(person(S.me).tz, gm.fail.at))} failed: ${esc(gm.fail.note)}. Mary: sign in to Garmin Connect in Chrome on the laptop.` : stale ? " That's over a day old." : ""}</p>
+      <ul class="gsync">${ids().map(garminLine).join("")}</ul>
     </section>
     <section class="block">
       <div class="block-head"><p class="eyebrow">The season</p><p class="eyebrow legend"><i class="lg done"></i>green <i class="lg miss"></i>red</p></div>
@@ -690,7 +739,7 @@ function sheet() {
     const count = countOf(days), pc = planCount(x.w);
     inner = `<h3 class="disp">Lock in week ${weekNo(x.w)}?</h3>
       <p>${count} workouts${count < pc ? `, ${pc - count} below the plan` : ""}. ${lr ? `${esc(lr.title)} on ${DOW[dowIdx(long)]}.` : ""}</p>
-      <p class="small">After this you get one swap and nothing else. Each day you don't finish turns red.</p>
+      <p class="small">After this you get one swap and nothing else. Each day you don't finish turns red. Your watch calendar follows at the next Garmin sync (0500 or 2130); rest and alt cardio days are blank on the watch.</p>
       <button class="primary big" data-act="lock-yes" data-w="${x.w}">Lock it in</button>
       <button class="ghost wide" data-act="close">Not yet</button>`;
   } else if (x.kind === "swap") {
