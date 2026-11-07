@@ -8,8 +8,9 @@ Installs on a phone as an app. Free to run. Live at https://duffin501.github.io/
 Week 1 is the week of 9 Nov 2026; race week is week 19. The plan file starts a
 week earlier, but nothing before 9 Nov is tracked.
 
-- **Lock in next week on Sunday.** Lock-in is open all of Sunday, your own time, for
-  the Monday to Sunday week ahead. The app opens on it, already filled in from the plan.
+- **Lock in next week over the weekend.** Lock-in is open Saturday and Sunday, your own
+  time, for the Monday to Sunday week ahead. The app opens on it, already filled in from
+  the plan. Until midnight Sunday you can lock, unlock, change and lock again.
   - **Drag** a day by its grip onto another day and the two trade workouts.
   - **Tap** a day to change it (plan, easy run, alt cardio, rest) or its miles (runs)
     or minutes (bike, walk, alt). The long run can move and change distance (8 mi

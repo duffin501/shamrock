@@ -15,7 +15,7 @@
 import { FIREBASE, PEOPLE } from "./config.js";
 import {
   PLAN, RACE_DAY, BASE_LT, DOW, SEASON_START, TOTAL_WEEKS, FIRST_WEEK,
-  addDays, diffDays, dowIdx, weekOf, weekDates, weekNo, inPlan, LAST_WEEK, clock, lockOpen,
+  addDays, diffDays, dowIdx, weekOf, weekDates, weekNo, inPlan, LAST_WEEK, clock, lockOpen, midnightIn,
   dayNum, shortDate, longDay, weekRange, fmtNum,
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
   stepDown, stepUp, kindOptions, setKind, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
@@ -197,15 +197,25 @@ function autoLock() {
 async function lockWeek(w) {
   S.sheet = null; S.open = null;
   if (!lockOpen(clock(person(S.me).tz, now()), w)) {
-    S.err = "Lock-in is closed. It opens Sunday for the week that starts Monday."; return render();
+    S.err = "Lock-in is closed. It opens Saturday for the week that starts Monday."; return render();
   }
   const days = draft(w);
-  const ups = { [`weeks/${S.me}/${w}`]: { days, lockedAt: now(), count: countOf(days) } };
+  const ups = { [`weeks/${S.me}/${w}`]: { days, lockedAt: now(), count: countOf(days), closesAt: midnightIn(w, person(S.me).tz) } };
   try {
     await update(ref(db, ROOT), ups);
     try { localStorage.removeItem(draftKey(w)); } catch {}
     delete S.drafts[w];
   } catch (e) { fail(e); }
+}
+
+/* Until midnight Sunday a locked week can be unlocked: its days go back into
+ * the planner and the record is removed. The rules refuse it after closesAt. */
+async function unlockWeek(w) {
+  const rec = person(S.me).weeks[w];
+  if (!rec?.lockedAt || rec.auto || !canUnlock(w)) return;
+  setDraft(w, { ...rec.days });
+  try { await remove(ref(db, `${ROOT}/weeks/${S.me}/${w}`)); }
+  catch (e) { fail(e); }
 }
 
 async function toggleDone(iso) {
@@ -248,8 +258,9 @@ window.shamrockSyncInput = () => {
   const cur = weekOf(s.today), weeks = [];
   for (const w of [cur, addDays(cur, 7)]) {
     if (!inPlan(w)) continue;
-    const days = lockedDays(p.weeks[w]);
-    if (!days) continue;
+    const g = governing(p.weeks, w);
+    if (!g) continue;
+    const days = g.days;
     const out = {};
     for (const d of weekDates(w)) {
       const a = days[d] || { k: "rest" };
@@ -336,13 +347,17 @@ function setDraft(w, days) {
   render();
 }
 
-/* The one week you can lock right now: next week, and only on Sunday (your
- * time). At midnight it closes and the plan's week takes over. */
+/* The one week you can lock right now: next week, Saturday or Sunday (your
+ * time). At midnight Sunday it closes and the plan's week takes over. */
 function plannable(id = S.me) {
   const p = person(id), c = clock(p.tz, now());
   const next = addDays(weekOf(c.iso), 7);
   return lockOpen(c, next) && !p.weeks[next]?.lockedAt ? [next] : [];
 }
+const canUnlock = (w) => {
+  const p = person(S.me), rec = p.weeks[w];
+  return !!rec?.lockedAt && !rec.auto && lockOpen(clock(p.tz, now()), w);
+};
 
 function sundayPrompt() {
   if (S.prompted) return;
@@ -431,7 +446,7 @@ function lockBanner() {
   const s = SEASON[S.me];
   const next = addDays(weekOf(s.today), 7);
   if (!plannable().includes(next)) return "";
-  const urgent = s.hour >= 17;
+  const urgent = dowIdx(s.today) === 6 && s.hour >= 17;
   const msg = urgent ? `Lock in week ${weekNo(next)} before midnight` : `Lock-in is open: week ${weekNo(next)}`;
   return `<button class="banner ${urgent ? "urgent" : ""}" data-act="go-plan"><span>${esc(msg)}</span><span class="arrow">Lock in</span></button>`;
 }
@@ -478,7 +493,7 @@ function hero() {
     const open = plannable().includes(next);
     const lockedNext = p.weeks[next]?.lockedAt;
     const startTxt = `Week 1 starts ${longDay(SEASON_START)}.` + (lockedNext ? " You're locked in."
-      : open ? " Lock-in is open today until midnight." : " Lock-in opens Sunday.");
+      : open ? " Lock-in is open until midnight Sunday." : " Lock-in opens Saturday.");
     const cta = open ? `<button class="primary big" data-act="go-plan">Lock in week 1</button>` : "";
     const planToday = PLAN[d] ? `<p class="note">The plan has <b>${esc(PLAN[d].t)}</b> today if you want a head start.</p>` : "";
     return `<section class="hero"><p class="eyebrow">Today · ${esc(longDay(d))}</p>
@@ -601,10 +616,11 @@ function weekLocked(id, w, g) {
     }
   }
 
-  const who = mine ? "you" : esc(nameOf(id));
+  const unlockable = mine && canUnlock(w);
   const lockedTxt = g.locked
-    ? (g.auto ? "Not locked in time, so the plan's week locked itself." : `Locked ${esc(timeIn(p.tz, rec.lockedAt))}.`)
-    : future ? `Lock-in opens Sunday${mine ? "" : ` (${esc(nameOf(id))}'s time)`}. If it isn't locked by midnight Sunday, this plan week is the week.`
+    ? (g.auto ? "Not locked in time, so the plan's week locked itself."
+      : `Locked ${esc(timeIn(p.tz, rec.lockedAt))}.${unlockable ? " You can unlock and change it until midnight Sunday." : ""}`)
+    : future ? `Lock-in opens Saturday${mine ? "" : ` (${esc(nameOf(id))}'s time)`}. If it isn't locked by midnight Sunday, this plan week is the week.`
     : "Not locked in time, so the plan's week governs it.";
   return `<section class="block">
     <div class="block-head"><p class="eyebrow">Week ${weekNo(w)} · ${esc(weekRange(w))}</p>
@@ -613,6 +629,7 @@ function weekLocked(id, w, g) {
     ${sw ? swapUi : ""}
     <ol class="rows">${rows}</ol>
     ${sw ? "" : swapUi}
+    ${unlockable ? `<button class="ghost wide" data-act="unlock" data-w="${w}">Unlock to change</button>` : ""}
   </section>`;
 }
 
@@ -659,7 +676,7 @@ function planner(w) {
     <ol class="rows">${rows}</ol>
     <p class="hint">Drag ${GRIP_INLINE} to move a workout to another day. Tap a day to change it or its miles.${changed ? ` <button class="link" data-act="reset" data-w="${w}">Reset to plan</button>` : ""}</p>
     <button class="primary big" data-act="lock" data-w="${w}">Lock in week ${weekNo(w)}</button>
-    <p class="note small center-t">${partner} Lock-in closes at midnight tonight; after that the plan's week is your week.</p>
+    <p class="note small center-t">${partner} You can lock and unlock until midnight Sunday; if it isn't locked then, the plan's week is your week.</p>
   </section>`;
 }
 
@@ -778,7 +795,7 @@ function sheet() {
     const count = countOf(days);
     inner = `<h3 class="disp">Lock in week ${weekNo(x.w)}?</h3>
       <p>${count} workouts${below(S.me, count) ? `, under your ${minDays(S.me)}-day minimum` : ""}. ${lr ? `${esc(lr.title)} on ${DOW[dowIdx(long)]}.` : ""}</p>
-      <p class="small">After this you get one swap and nothing else. Each day you don't finish turns red. Your watch calendar follows at the next Garmin sync (0500 or 2130); rest and alt cardio days are blank on the watch.</p>
+      <p class="small">You can unlock and change it until midnight Sunday. After that you get one swap and nothing else, and each day you don't finish turns red. Your watch follows at the next Garmin sync (0500 or 2130); rest and alt cardio days are blank on the watch.</p>
       <button class="primary big" data-act="lock-yes" data-w="${x.w}">Lock it in</button>
       <button class="ghost wide" data-act="close">Not yet</button>`;
   } else if (x.kind === "swap") {
@@ -847,6 +864,7 @@ root.addEventListener("click", (e) => {
     case "reset": S.open = null; return setDraft(w, defaultWeek(w));
     case "lock": S.sheet = { kind: "lock", w }; return render();
     case "lock-yes": return lockWeek(w);
+    case "unlock": S.open = null; return unlockWeek(w);
     case "swap-on": S.swap = { w: weekOf(SEASON[S.me].today), first: null }; return render();
     case "swap-off": S.swap = null; return render();
     case "swap-cancel-first": S.swap.first = null; return render();

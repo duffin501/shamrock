@@ -37,10 +37,21 @@ export const weekNo = (w) => Math.floor(diffDays(FIRST_WEEK, w) / 7) + 1;
 export const inPlan = (w) => w >= FIRST_WEEK && w <= LAST_WEEK;
 export const TOTAL_WEEKS = Math.floor(diffDays(FIRST_WEEK, weekOf(RACE_DAY)) / 7) + 1;
 
-/* Lock-in is open all of Sunday, in your own timezone, for the week that
- * starts the next morning. At midnight it closes and an unlocked week
- * becomes the plan's week. */
-export const lockOpen = (clk, w) => clk.dow === 6 && w === addDays(weekOf(clk.iso), 7) && inPlan(w);
+/* Lock-in is open all weekend, Saturday and Sunday in your own timezone, for
+ * the week that starts Monday. Until midnight Sunday you can lock, unlock and
+ * lock again (Mary, 7 Nov). Then it closes and an unlocked week becomes the
+ * plan's week. */
+export const lockOpen = (clk, w) => clk.dow >= 5 && w === addDays(weekOf(clk.iso), 7) && inPlan(w);
+
+/* The moment a date starts in a timezone, as epoch ms. A locked week stores
+ * its Monday's midnight as closesAt; the database rules use it to allow an
+ * unlock only before then. */
+export function midnightIn(iso, tz) {
+  const guess = Date.parse(iso + "T00:00:00Z");
+  const c = clock(tz, guess);
+  const local = Date.parse(`${c.iso}T${String(c.hour).padStart(2, "0")}:${String(c.minute).padStart(2, "0")}:00Z`);
+  return guess - (local - guess);
+}
 
 /* The wall clock for one person: their date, hour and weekday right now. */
 export function clock(tz, now = Date.now()) {

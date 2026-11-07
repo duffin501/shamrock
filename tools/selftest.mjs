@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   PLAN, STEPS, addDays, weekOf, weekNo, clock, defaultWeek, countOf, planCount,
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
-  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, lockOpen,
+  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, lockOpen, midnightIn,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, LAST_WEEK, SEASON_START, TOTAL_WEEKS
 } from "../core.js";
@@ -30,16 +30,23 @@ t("clock per timezone", () => {
   assert.deepEqual([clock("America/New_York", now).iso, clock("America/New_York", now).hour], ["2026-11-09", 0]);
   assert.deepEqual([clock("America/Denver", now).iso, clock("America/Denver", now).dow], ["2026-11-08", 6]);
 });
-t("lock-in is open all Sunday for the next week only", () => {
+t("lock-in is open all weekend for the next week only", () => {
   const sun = clock("America/New_York", Date.parse("2026-11-08T13:00:00Z")); // Sun 8 AM
   const sat = clock("America/New_York", Date.parse("2026-11-07T23:00:00Z")); // Sat 6 PM
+  const fri = clock("America/New_York", Date.parse("2026-11-07T03:00:00Z")); // Fri 10 PM
   const mon = clock("America/New_York", Date.parse("2026-11-09T05:30:00Z")); // Mon 00:30
   assert.equal(lockOpen(sun, W1), true);
-  assert.equal(lockOpen(sat, W1), false);
+  assert.equal(lockOpen(sat, W1), true);
+  assert.equal(lockOpen(fri, W1), false);
   assert.equal(lockOpen(mon, W2), false);
   assert.equal(lockOpen(sun, W2), false);
   // Jon at 10:30 PM Sunday Mountain can still lock
   assert.equal(lockOpen(clock("America/Denver", Date.parse("2026-11-09T05:30:00Z")), W1), true);
+});
+t("closesAt is Monday midnight in each timezone", () => {
+  assert.equal(midnightIn(W1, "America/New_York"), Date.parse("2026-11-09T05:00:00Z"));
+  assert.equal(midnightIn(W1, "America/Denver"), Date.parse("2026-11-09T07:00:00Z"));
+  assert.equal(midnightIn("2027-03-15", "America/New_York"), Date.parse("2027-03-15T04:00:00Z"), "after DST starts");
 });
 t("default week: 7 days, long on Friday", () => {
   const d = defaultWeek(W1);
