@@ -490,10 +490,19 @@ export const paceStr = (secPerMile) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-/* Marathon time if the latest long run's average pace were held for 26.2.
- * The long run is each week's longest Garmin run, if it was 8 miles or more,
- * so a long run moved off Friday still counts. Change is against the long run
- * before it; negative means faster. */
+/* Riegel's formula, the one most online race-time calculators use:
+ * T2 = T1 x (D2 / D1)^1.06. The 1.06 is the slow-down for going farther, so
+ * the shorter the run, the more it adds on: 12 mi at 10:30 gives 4:48, but
+ * 20 mi at the same 10:30 gives 4:40. */
+export const RIEGEL = 1.06;
+export const riegel = (sec, mi, toMi = 26.2) => Math.round(sec * Math.pow(toMi / mi, RIEGEL));
+
+/* Marathon estimate from the latest long run, its time and its distance put
+ * through Riegel. It reads the runs the 0500 and 2130 sync already saved, so
+ * nothing is pulled from Garmin to show it. The long run is each week's
+ * longest Garmin run, if it was 8 miles or more, so a long run moved off
+ * Friday still counts. Change is against the long run before it; negative
+ * means faster. */
 export function longRunProjection(gdays, today) {
   const best = {};
   for (const [d, g] of Object.entries(gdays || {})) {
@@ -503,7 +512,7 @@ export function longRunProjection(gdays, today) {
   }
   const runs = Object.keys(best).sort().reverse().map((w) => best[w]);
   if (!runs.length) return null;
-  const proj = (x) => Math.round((x.sec / x.mi) * 26.2);
+  const proj = (x) => riegel(x.sec, x.mi);
   const cur = runs[0];
   return { sec: proj(cur), pace: cur.sec / cur.mi, mi: cur.mi, d: cur.d,
     change: runs[1] ? proj(cur) - proj(runs[1]) : null };

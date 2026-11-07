@@ -50,9 +50,16 @@ under, aim for 3:50.
 ## The numbers
 
 Workouts done on the day, missed days, miles since 9 Nov, longest single run, long
-runs done, and a marathon projection: the latest long run's average pace held for
-26.2 miles, with the change since the long run before it. A week's long run is its
-longest Garmin run if that was 8 miles or more.
+runs done, and a marathon estimate from the latest long run, with the change since
+the long run before it. A week's long run is its longest Garmin run if that was 8
+miles or more.
+
+The estimate is Riegel's formula, the one most online race-time calculators use:
+time x (26.2 / miles)^1.06. It counts the distance as well as the pace, so the same
+10:30 pace reads 4:48 off a 12-miler and 4:40 off a 20-miler. Long runs are easy
+effort, so the number runs slow next to race-day pace; it's for the trend and the
+head-to-head. It works from the runs the sync already saved, with no extra Garmin
+pull.
 
 Garmin's own race predictor isn't used: Mary's account can't read Jon's (Garmin
 quietly returns hers instead).

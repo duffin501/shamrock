@@ -708,7 +708,7 @@ function tabUs() {
   const started = (s) => !!s.start;
   const n = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toString();
   const predCell = (p) => p
-    ? `${hms(p.sec)}<small>${paceStr(p.pace)}/mi</small><small>${(Math.round(p.mi * 10) / 10)} mi, ${esc(shortDate(p.d))}</small>${p.change ? `<small class="${p.change < 0 ? "up" : "down"}">${p.change < 0 ? "faster" : "slower"} ${shortDelta(p.change)}</small>` : ""}`
+    ? `${hms(p.sec)}<small>from ${(Math.round(p.mi * 10) / 10)} mi at ${paceStr(p.pace)}</small><small>${esc(shortDate(p.d))}</small>${p.change ? `<small class="${p.change < 0 ? "up" : "down"}">${p.change < 0 ? "faster" : "slower"} ${shortDelta(p.change)}</small>` : ""}`
     : "<span class='dim'>no long run yet</span>";
 
   const rows = [
@@ -717,7 +717,7 @@ function tabUs() {
     row("Miles", `${n(sa.miles)}${sa.milesEst ? "<small>part est.</small>" : ""}`, `${n(sb.miles)}${sb.milesEst ? "<small>part est.</small>" : ""}`, cmp(sa.miles, sb.miles, "high"), "since 9 Nov"),
     row("Longest run", `${n(sa.longest)}<small>mi</small>`, `${n(sb.longest)}<small>mi</small>`, cmp(sa.longest, sb.longest, "high"), "single run"),
     row("Long runs", started(sa) ? `${sa.longDone}<small>of ${sa.longDue}</small>` : "–", started(sb) ? `${sb.longDone}<small>of ${sb.longDue}</small>` : "–", cmp(sa.longDone, sb.longDone, "high"), "the non-negotiable"),
-    row("Marathon pace", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "long run pace × 26.2")
+    row("Marathon est.", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "latest long run, Riegel")
   ].join("");
 
   const tz = person(S.me).tz;

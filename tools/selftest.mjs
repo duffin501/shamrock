@@ -5,7 +5,7 @@ import {
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
   amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
-  needsAutoLock, hms, paceStr, longRunProjection, LAST_WEEK, SEASON_START, TOTAL_WEEKS
+  needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS
 } from "../core.js";
 
 let n = 0;
@@ -223,8 +223,15 @@ t("marathon projection from the latest long run", () => {
   };
   const p = longRunProjection(days, "2026-11-20");
   assert.equal(p.d, "2026-11-14");
-  assert.equal(p.sec, Math.round(550 * 26.2));
-  assert.equal(p.change, Math.round(550 * 26.2) - Math.round(570 * 26.2));
+  assert.equal(p.sec, Math.round(6050 * Math.pow(26.2 / 11, 1.06)), "Riegel from the 11 mi run");
+  assert.equal(p.change, p.sec - Math.round(5700 * Math.pow(26.2 / 10, 1.06)));
+  assert.equal(p.pace, 550);
+  // Same pace, longer run: the estimate gets faster.
+  assert.equal(hms(riegel(12 * 630, 12)), "4:48:18");
+  assert.equal(hms(riegel(20 * 630, 20)), "4:39:36");
+  assert.equal(riegel(14280, 26.2), 14280, "a full marathon predicts itself");
+  const same = longRunProjection({ "2026-11-13": { lr: 12, ls: 7560 }, "2026-11-20": { lr: 16, ls: 10080 } }, "2026-11-22");
+  assert.ok(same.change < 0, "16 mi at the same pace as 12 reads as faster");
 });
 
 console.log(`${n} checks passed`);
