@@ -216,25 +216,50 @@ export function stepUp(days, w) {
 
 /* ---------- editing one day ---------- */
 
-/* The kinds a day can be set to. The long run (and race) can only move or
- * change distance, never become something else. */
+/* Hard sessions any day can be switched to (Mary, 7 Nov): threshold (Z4),
+ * intervals (Z5) and hills. The session is taken from the plan itself: the
+ * latest one of that kind on or before the day, else the first one after, so
+ * it fits where the block is. */
+const FAMILY = { thr: /^SHAM \/\/ THRESHOLD /, int: /^SHAM \/\/ INTERVALS /, hills: /^SHAM \/\/ HILLS / };
+export const FAMILY_LABEL = { thr: "Threshold", int: "Intervals", hills: "Hills" };
+const FAMILY_DATES = Object.fromEntries(Object.entries(FAMILY).map(([k, re]) =>
+  [k, Object.keys(PLAN).sort().filter((d) => re.test(PLAN[d].g || ""))]));
+export function familySrc(fam, iso) {
+  const ds = FAMILY_DATES[fam] || [];
+  const before = ds.filter((d) => d <= iso);
+  return before.length ? before[before.length - 1] : ds[0] || null;
+}
+export const familyOf = (src) => Object.keys(FAMILY).find((k) => FAMILY[k].test(PLAN[src]?.g || "")) || null;
+
+/* What a day can be set to: its plan workout, Z2 easy, threshold, intervals,
+ * hills, alt cardio or rest. Options that would repeat the plan are left out.
+ * The long run (and race) can only move or change distance. */
 export function kindOptions(days, d, w) {
   if (d === longSlot(days)) return [];
   const a = days[d];
-  const cur = a?.k === "plan" ? a.src : null;
+  const inWeek = new Set(weekDates(w));
+  const cur = a?.k === "plan" && inWeek.has(a.src) ? a.src : null;
   const free = unusedSrcs(days, w);
   const home = cur || (free.includes(d) ? d : free[0]) || null;
   const pk = home ? PLAN[home].k : null;
   const opts = [];
-  if (home) opts.push({ k: "plan", src: home, label: PLAN[home].t });
-  if (pk !== "easy") opts.push({ k: "easy", label: "Easy run" });
-  if (!["bike", "walk"].includes(pk)) opts.push({ k: "alt", label: "Alt cardio" });
-  opts.push({ k: "rest", label: "Rest" });
+  if (home) {
+    const fam = familyOf(home);
+    const what = fam ? FAMILY_LABEL[fam] : { easy: "Z2", bike: "Bike", walk: "Walk", quality: "Hard day" }[pk] || "";
+    opts.push({ key: "plan", k: "plan", src: home, label: what ? `Plan: ${what}` : "Plan" });
+  }
+  if (pk !== "easy") opts.push({ key: "easy", k: "easy", label: "Z2 easy" });
+  for (const [fam, label] of [["thr", "Threshold Z4"], ["int", "Intervals Z5"], ["hills", "Hills"]]) {
+    const src = familySrc(fam, d);
+    if (src && src !== home) opts.push({ key: fam, k: "plan", src, label });
+  }
+  if (!["bike", "walk"].includes(pk)) opts.push({ key: "alt", k: "alt", label: "Alt cardio" });
+  opts.push({ key: "rest", k: "rest", label: "Rest" });
   return opts;
 }
 
-export function setKind(days, d, w, k) {
-  const opt = kindOptions(days, d, w).find((o) => o.k === k);
+export function setKind(days, d, w, key) {
+  const opt = kindOptions(days, d, w).find((o) => o.key === key);
   if (!opt) return days;
   return { ...days, [d]: opt.k === "plan" ? { k: "plan", src: opt.src } : { k: opt.k } };
 }

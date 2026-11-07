@@ -77,13 +77,24 @@ t("step up brings days back in reverse", () => {
 });
 t("kind options and setKind", () => {
   const d = defaultWeek(W2);
-  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.k), ["plan", "easy", "alt", "rest"]);
-  assert.deepEqual(kindOptions(d, "2026-11-16", W2).map((o) => o.k), ["plan", "alt", "rest"]);
-  assert.deepEqual(kindOptions(d, "2026-11-17", W2).map((o) => o.k), ["plan", "easy", "rest"]);
+  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "alt", "rest"], "hills day: no separate Hills button");
+  assert.deepEqual(kindOptions(d, "2026-11-16", W2).map((o) => o.key), ["plan", "thr", "int", "hills", "alt", "rest"]);
+  assert.deepEqual(kindOptions(d, "2026-11-17", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "hills", "rest"]);
   assert.deepEqual(kindOptions(d, "2026-11-20", W2), [], "long run can't change kind");
   const e = setKind(d, "2026-11-18", W2, "alt");
   assert.deepEqual(e["2026-11-18"], { k: "alt" });
   assert.deepEqual(setKind(e, "2026-11-18", W2, "plan")["2026-11-18"], { k: "plan", src: "2026-11-18" });
+  // Z2 Monday to threshold: the first threshold in the plan (block hasn't got there yet)
+  const thr = setKind(d, "2026-11-16", W2, "thr");
+  assert.equal(resolve(thr["2026-11-16"], "2026-11-16").title, "Threshold 4 x 4 min");
+  assert.equal(garminWant(thr["2026-11-16"], "2026-11-16").name, "SHAM // THRESHOLD 4x4MIN");
+  // later in the block it's the latest one on or before the day
+  assert.equal(resolve(setKind(defaultWeek("2027-01-18"), "2027-01-18", "2027-01-18", "thr")["2027-01-18"], "2027-01-18").title, "Threshold 2 x 12 min");
+  assert.equal(resolve(setKind(defaultWeek("2027-01-18"), "2027-01-21", "2027-01-18", "int")["2027-01-21"], "2027-01-21").title, "Intervals 5 x 3 min");
+  // and it's a hard day: next to the long run it needs the confirm
+  assert.deepEqual(hardNextToLong(setKind(d, "2026-11-19", W2, "int")), ["2026-11-19"]);
+  // back to plan restores the day's own workout
+  assert.deepEqual(setKind(thr, "2026-11-16", W2, "plan")["2026-11-16"], { k: "plan", src: "2026-11-16" });
 });
 t("drag swaps two days, race stays", () => {
   const d = moveDay(defaultWeek(W1), "2026-11-13", "2026-11-14");

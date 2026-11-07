@@ -13,8 +13,10 @@ week earlier, but nothing before 9 Nov is tracked.
   midnight Sunday (your own time) it locks itself as you left it, or as the plan's week
   if you never touched it, and on Monday it becomes "This week". Sunday shows a reminder.
   - **Drag** a day by its grip onto another day and the two trade workouts.
-  - **Tap** a day to change it (plan, easy run, alt cardio, rest) or its miles (runs)
-    or minutes (bike, walk, alt). The long run can move and change distance (8 mi
+  - **Tap** a day to change it (its plan workout, Z2 easy, Threshold Z4, Intervals Z5,
+    Hills, alt cardio, rest) or its miles (runs) or minutes (bike, walk, alt). A
+    threshold, interval or hills day uses the plan's own session of that kind: the latest
+    one on or before that day, or the first one if the block hasn't reached it yet. The long run can move and change distance (8 mi
     minimum) but never comes off the week. Race day stays put.
   - **Minus** drops a day in this order: stroller walk, bike and alt cardio, Z2 runs
     down to one (shortest first), hard days, then the last Z2. **Plus** brings them

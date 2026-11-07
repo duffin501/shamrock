@@ -158,7 +158,7 @@ await (async () => {
         let want = "", def = null;
         if (a.want) { want = a.want; def = a.def || null; }
         else if (a.k === "plan") {
-          want = hasBase ? (none(B[a.src]) ? "" : B[a.src]) : (a.g || "");
+          want = hasBase && a.src in B ? (none(B[a.src]) ? "" : B[a.src]) : (a.g || "");
           want = want.replace("SHAM // STROLLER Z2 ", "SHAM // Z2 ");
           if (want && want === a.g) def = a.def || null;
         } else if (a.k === "easy") want = wk.easy || "";

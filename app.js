@@ -18,7 +18,7 @@ import {
   addDays, diffDays, dowIdx, weekOf, weekDates, weekNo, inPlan, LAST_WEEK, clock, canEdit, midnightIn,
   dayNum, shortDate, longDay, weekRange, fmtNum,
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
-  stepDown, stepUp, kindOptions, setKind, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
+  stepDown, stepUp, kindOptions, setKind, familyOf, FAMILY_LABEL, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
   lockedDays, governing, needsAutoLock,
   canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
   hms, paceStr, longRunProjection, easyMiles
@@ -629,8 +629,9 @@ function planner(w) {
 
   const rows = weekDates(w).map((d, i) => {
     const a = days[d], r = resolve(a, d), isLong = d === long, open = S.open === d;
+    const fam = a.k === "plan" ? familyOf(a.src) : null;
     const chip = isLong ? (r.race ? "Race" : "Long run") : r.rest ? "Rest"
-      : a.k === "easy" ? "Easy" : a.k === "alt" ? "Alt" : r.changed ? "Changed" : "Plan";
+      : a.k === "easy" ? "Z2" : a.k === "alt" ? "Alt" : fam ? FAMILY_LABEL[fam] : r.changed ? "Changed" : "Plan";
     const grip = r.race ? `<span class="grip off"></span>`
       : `<span class="grip" data-grip="${d}" data-w="${w}" aria-label="Drag ${DOW[i]} to another day">${GRIP}</span>`;
     return `<li class="prow ${open ? "open" : ""}" data-drop="${d}">
@@ -639,7 +640,7 @@ function planner(w) {
         <button class="rowmain" data-act="edit" data-d="${d}" data-w="${w}" aria-expanded="${open}">
           <span class="dcol"><span class="dow">${DOW[i]}</span><span class="dn mono">${dayNum(d)}</span></span>
           <span class="mid"><span class="ttl">${esc(r.title)}</span><span class="sub">${esc(meta(r))}${r.rest ? "" : " · " + esc(noteFor(r, S.me))}</span></span>
-          <span class="chip c-${isLong ? "long" : r.changed && a.k === "plan" ? "changed" : a.k}">${chip}</span>
+          <span class="chip c-${isLong ? "long" : fam ? "hard" : r.changed && a.k === "plan" ? "changed" : a.k}">${chip}</span>
         </button>
       </div>
       ${open ? editor(days, d, w) : ""}
@@ -677,7 +678,7 @@ function editor(days, d, w) {
   const isLong = d === longSlot(days);
   const kinds = opts.length ? `<div class="kinds">${opts.map((o) => {
     const on = o.k === a.k && (o.k !== "plan" || o.src === a.src);
-    return `<button class="kbtn ${on ? "on" : ""}" data-act="kind" data-k="${o.k}" data-d="${d}" data-w="${w}">${o.k === "plan" ? "Plan" : esc(o.label)}</button>`;
+    return `<button class="kbtn ${on ? "on" : ""}" data-act="kind" data-k="${o.key}" data-d="${d}" data-w="${w}">${esc(o.label)}</button>`;
   }).join("")}</div>` : "";
   const amt = spec ? `<div class="amt">
       <button class="step sm" data-act="amt" data-dir="-1" data-d="${d}" data-w="${w}" ${spec.value <= spec.min ? "disabled" : ""} aria-label="Less">&minus;</button>
