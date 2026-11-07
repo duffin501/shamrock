@@ -20,7 +20,7 @@ import {
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
   stepDown, stepUp, cycle, moveLong, lockedDays, governing, needsAutoLock,
   canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
-  hms, parseHms, predictor
+  hms, paceStr, longRunProjection
 } from "./core.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.10.0/";
@@ -63,7 +63,7 @@ function person(id) {
     ...seed, ...live, id,
     tz: live.tz || seed.tz, lt: +live.lt || seed.lt || BASE_LT,
     weeks: S.data.weeks?.[id] || {}, log: S.data.log?.[id] || {},
-    garmin: S.data.garmin?.[id] || null, manual: S.data.manual?.[id] || null
+    garmin: S.data.garmin?.[id] || null
   };
 }
 const nameOf = (id) => person(id).name || id;
@@ -225,20 +225,10 @@ async function saveLt(v) {
   try { await set(ref(db, `${ROOT}/people/${S.me}/lt`), n); } catch (e) { fail(e); }
 }
 
-async function savePred(txt) {
-  const sec = parseHms(txt);
-  if (!sec) { S.err = "Type it like 3:58 or 3:58:20."; return render(); }
-  S.sheet = null;
-  const today = SEASON[S.me].today;
-  try {
-    await update(ref(db, `${ROOT}/manual/${S.me}`), { pred: { sec, at: now() }, [`hist/${today}`]: sec });
-  } catch (e) { fail(e); }
-}
-
 /* The nightly Garmin pull calls this from Mary's signed-in tab:
- *   await shamrockIngest({ mary: { pred: 14280, days: { "2026-11-09": [3.1, 3.1, 1] } }, jon: {...} })
- * days are [run miles, longest single run, activity count]. Mary's account
- * is the only one the rules let write here. */
+ *   await shamrockIngest({ mary: { days: { "2026-11-09": [3.1, 3.1, 1, 1710] } }, jon: {...} })
+ * days are [run miles, longest single run, activity count, longest run
+ * seconds]. Mary's account is the only one the rules let write here. */
 window.shamrockIngest = async (payload) => {
   if (S.me !== "mary") throw new Error("sign in as Mary first");
   if (typeof payload === "string") payload = JSON.parse(payload);
@@ -247,21 +237,19 @@ window.shamrockIngest = async (payload) => {
     await set(ref(db, `${ROOT}/garmin/meta/fail`), { at, note: String(payload.error).slice(0, 200) });
     return "recorded failure";
   }
-  const etToday = clock("America/New_York", at).iso;
   for (const id of ids()) {
     const x = payload?.[id];
     if (!x) continue;
     let n = 0;
     for (const [d, v] of Object.entries(x.days || {})) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(v)) continue;
-      ups[`garmin/${id}/days/${d}`] = { r: +(+v[0] || 0).toFixed(2), lr: +(+v[1] || 0).toFixed(2), n: +v[2] || 0 };
+      ups[`garmin/${id}/days/${d}`] = { r: +(+v[0] || 0).toFixed(2), lr: +(+v[1] || 0).toFixed(2), n: +v[2] || 0, ls: Math.round(+v[3] || 0) };
       n++;
     }
-    if (x.pred > 0) {
-      ups[`garmin/${id}/pred`] = { sec: Math.round(x.pred), at };
-      ups[`garmin/${id}/hist/${etToday}`] = Math.round(x.pred);
-    }
-    out.push(`${id}:${n}d${x.pred ? "+pred" : ""}`);
+    // Retired: Garmin's race predictor (replaced by long-run pace, 7 Nov 2026).
+    ups[`garmin/${id}/pred`] = null;
+    ups[`garmin/${id}/hist`] = null;
+    out.push(`${id}:${n}d`);
   }
   ups["garmin/meta"] = { at, note: String(payload?.note || "").slice(0, 200), fail: null };
   await update(ref(db, ROOT), ups);
@@ -627,8 +615,8 @@ function planner(w) {
 function tabUs() {
   const [a, b] = ids();
   const sa = SEASON[a], sb = SEASON[b];
-  const pa = predictor(person(a).garmin, person(a).manual, sa.today);
-  const pb = predictor(person(b).garmin, person(b).manual, sb.today);
+  const pa = longRunProjection(person(a).garmin?.days, sa.today);
+  const pb = longRunProjection(person(b).garmin?.days, sb.today);
 
   const cmp = (x, y, better) => better === "high" ? (x > y ? "a" : y > x ? "b" : "") : (x < y ? "a" : y < x ? "b" : "");
   const row = (label, va, vb, lead, sub) => `<div class="h2h-row">
@@ -638,7 +626,9 @@ function tabUs() {
     </div>`;
   const started = (s) => !!s.start;
   const n = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toString();
-  const predCell = (p) => p ? `${hms(p.sec)}${p.change ? `<small class="${p.change < 0 ? "up" : "down"}">${p.change < 0 ? "faster" : "slower"} ${shortDelta(p.change)}</small>` : ""}` : "<span class='dim'>none yet</span>";
+  const predCell = (p) => p
+    ? `${hms(p.sec)}<small>${paceStr(p.pace)}/mi</small><small>${(Math.round(p.mi * 10) / 10)} mi, ${esc(shortDate(p.d))}</small>${p.change ? `<small class="${p.change < 0 ? "up" : "down"}">${p.change < 0 ? "faster" : "slower"} ${shortDelta(p.change)}</small>` : ""}`
+    : "<span class='dim'>no long run yet</span>";
 
   const rows = [
     row("Workouts", started(sa) ? `${sa.workouts}<small>of ${sa.due}</small>` : "–", started(sb) ? `${sb.workouts}<small>of ${sb.due}</small>` : "–", cmp(sa.workouts, sb.workouts, "high"), "done on the day"),
@@ -646,7 +636,7 @@ function tabUs() {
     row("Miles", `${n(sa.miles)}${sa.milesEst ? "<small>part est.</small>" : ""}`, `${n(sb.miles)}${sb.milesEst ? "<small>part est.</small>" : ""}`, cmp(sa.miles, sb.miles, "high"), "since 2 Nov"),
     row("Longest run", `${n(sa.longest)}<small>mi</small>`, `${n(sb.longest)}<small>mi</small>`, cmp(sa.longest, sb.longest, "high"), "single run"),
     row("Long runs", started(sa) ? `${sa.longDone}<small>of ${sa.longDue}</small>` : "–", started(sb) ? `${sb.longDone}<small>of ${sb.longDue}</small>` : "–", cmp(sa.longDone, sb.longDone, "high"), "the non-negotiable"),
-    row("Marathon est.", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "Garmin race predictor")
+    row("Marathon pace", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "long run pace × 26.2")
   ].join("");
 
   const gm = S.data.garmin?.meta;
@@ -655,7 +645,6 @@ function tabUs() {
   const stale = failed || (gm?.at && now() - gm.at > 36 * 3600000);
 
   const me = person(S.me);
-  const myPred = S.me === a ? pa : pb;
 
   return `<section class="block h2h">
       <div class="h2h-head"><span class="p-${a}">${esc(nameOf(a))}</span><span></span><span class="p-${b}">${esc(nameOf(b))}</span></div>
@@ -669,7 +658,6 @@ function tabUs() {
     <section class="block settings">
       <p class="eyebrow">Your settings</p>
       <div class="set-row"><span>Threshold HR <b class="mono">${me.lt}</b><small>Run HR bands scale from this. The plan assumes 167.</small></span><button class="ghost" data-act="sheet" data-sheet="lt">Edit</button></div>
-      <div class="set-row"><span>Marathon estimate <b class="mono">${myPred ? hms(myPred.sec) : "none"}</b><small>${myPred?.src === "garmin" ? "From Garmin." : "Garmin fills this nightly. Type yours if it doesn't."}</small></span><button class="ghost" data-act="sheet" data-sheet="pred">Enter</button></div>
       <div class="set-row"><span>Signed in as <b>${esc(S.user?.email || "")}</b></span><button class="ghost" data-act="signout">Sign out</button></div>
     </section>`;
 }
@@ -717,12 +705,6 @@ function sheet() {
     inner = `<h3 class="disp">Threshold HR</h3>
       <p class="small">From your 30 minute test: the average HR of the last 20 minutes. Run bands in the app scale from it.</p>
       <form data-form="lt"><input name="v" type="number" inputmode="numeric" min="140" max="200" value="${person(S.me).lt}" class="field mono" autocomplete="off">
-      <button class="primary big" type="submit">Save</button></form>
-      <button class="ghost wide" data-act="close">Cancel</button>`;
-  } else if (x.kind === "pred") {
-    inner = `<h3 class="disp">Marathon estimate</h3>
-      <p class="small">Garmin watch: Performance Stats, Race Predictor. Type it as hours and minutes.</p>
-      <form data-form="pred"><input name="v" type="text" inputmode="numeric" placeholder="3:58:20" class="field mono" autocomplete="off">
       <button class="primary big" type="submit">Save</button></form>
       <button class="ghost wide" data-act="close">Cancel</button>`;
   }
@@ -784,7 +766,6 @@ root.addEventListener("submit", (e) => {
   const v = f.querySelector("input")?.value;
   document.activeElement?.blur();
   if (f.dataset.form === "lt") saveLt(v);
-  if (f.dataset.form === "pred") savePred(v);
 });
 root.addEventListener("focusout", () => { if (pending) setTimeout(() => { if (pending) render(); }, 0); });
 

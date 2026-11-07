@@ -3,10 +3,12 @@
  * a short JSON string to hand to shamrockIngest() on the app tab.
  *
  * Reads the last 10 days for both people (Mary's own account, Jon through his
- * profile, the way the 75 Hard totals were pulled) plus each marathon race
- * prediction. Older days are already stored, and 10 days keeps the output small.
- * Jon's race prediction is NOT readable from Mary's account (checked 7 Nov
- * 2026: Garmin returns her own numbers), so his comes from the app's Us tab.
+ * profile, the way the 75 Hard totals were pulled). Older days are already
+ * stored, and 10 days keeps the output small. Each day is
+ * [run miles, longest run miles, activity count, longest run seconds]; the app
+ * turns the latest 8+ mile run's pace into the marathon projection.
+ * Garmin's race predictor is not used: Mary's account can't read Jon's (it
+ * silently returns hers), and she asked for long-run pace instead (7 Nov 2026).
  * Starts with a top-level await so the javascript tool waits for the result.
  * Endpoints are the ones Garmin Connect's own web app used in Nov 2026. */
 await (async () => {
@@ -28,8 +30,7 @@ await (async () => {
     return r.json();
   };
 
-  let me, myPk;
-  try { const prof = await j("/gc-api/userprofile-service/socialProfile"); me = prof.displayName; myPk = prof.profileId; }
+  try { await j("/gc-api/userprofile-service/socialProfile"); }
   catch (e) { return JSON.stringify({ error: "Garmin signed out or profile failed: " + e.message }); }
 
   const notes = [];
@@ -49,32 +50,25 @@ await (async () => {
   }
   function summarize(list) {
     const days = {};
-    for (let d = since; d <= lastFull; d = iso(Date.parse(d + "T12:00:00Z") + 86400000)) days[d] = [0, 0, 0];
+    for (let d = since; d <= lastFull; d = iso(Date.parse(d + "T12:00:00Z") + 86400000)) days[d] = [0, 0, 0, 0];
     for (const a of list) {
       const d = String(a.startTimeLocal || "").slice(0, 10);
       if (!d || d < since || d > END) continue;
       const t = a.activityType?.typeKey || "";
       const mi = (a.distance || 0) / 1609.344;
-      const x = days[d] || (days[d] = [0, 0, 0]);
+      const x = days[d] || (days[d] = [0, 0, 0, 0]);
       x[2]++;
-      if (/running/.test(t)) { x[0] += mi; x[1] = Math.max(x[1], mi); }
+      if (/running/.test(t)) {
+        x[0] += mi;
+        if (mi > x[1]) { x[1] = mi; x[3] = Math.round(a.duration || a.movingDuration || 0); }
+      }
     }
-    for (const d in days) days[d] = [+days[d][0].toFixed(2), +days[d][1].toFixed(2), days[d][2]];
+    for (const d in days) days[d] = [+days[d][0].toFixed(2), +days[d][1].toFixed(2), days[d][2], days[d][3]];
     return days;
   }
-  async function marathon(name) {
-    try {
-      const p = await j(`/gc-api/metrics-service/metrics/racepredictions/latest/${name}`);
-      const x = Array.isArray(p) ? p[p.length - 1] : p;
-      // Asked for someone else, Garmin quietly answers with your own numbers.
-      if (name !== me && x?.userId === myPk) { notes.push("jon pred not visible"); return null; }
-      return Math.round(x?.timeMarathon || x?.marathonTime || 0) || null;
-    } catch (e) { notes.push("pred " + e.message); return null; }
-  }
-
   const out = {};
-  for (const [id, name] of [["mary", me], ["jon", JON]]) {
-    try { out[id] = { days: summarize(await activities(id)), pred: await marathon(name) }; }
+  for (const id of ["mary", "jon"]) {
+    try { out[id] = { days: summarize(await activities(id)) }; }
     catch (e) { notes.push(id + " " + e.message); }
   }
   out.note = notes.join("; ").slice(0, 200);

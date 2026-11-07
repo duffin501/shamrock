@@ -4,7 +4,7 @@ import {
   PLAN, addDays, weekOf, weekDates, weekNo, clock, defaultWeek, countOf, planCount,
   longSlot, stepDown, stepUp, cycle, moveLong, resolve, lockedDays, governing,
   dayStatus, garminMatch, season, swapFirstChoices, swapSecondChoices, scaleNote,
-  needsAutoLock, hms, parseHms, predictor, LAST_WEEK
+  needsAutoLock, hms, paceStr, longRunProjection, LAST_WEEK
 } from "../core.js";
 
 let n = 0;
@@ -167,15 +167,22 @@ t("hr scaling", () => {
   assert.equal(scaleNote("HR 100-130. Plus lift.", "bike", 172), "HR 100-130. Plus lift.");
   assert.equal(scaleNote("Miles 1-3 HR 135-150.", "race", 160), "Miles 1-3 HR 129-144.");
 });
-t("predictor", () => {
+t("marathon projection from the latest long run", () => {
   assert.equal(hms(14280), "3:58:00");
-  assert.equal(parseHms("3:58"), 14280);
-  assert.equal(parseHms("3:58:20"), 14300);
-  assert.equal(parseHms("58:20"), null);
-  const p = predictor({ pred: { sec: 14000, at: 10 }, hist: { "2026-11-02": 14500, "2026-11-10": 14100 } }, null, "2026-11-12");
-  assert.equal(p.change, -500);
-  const q = predictor({ pred: { sec: 14000, at: 10 } }, { pred: { sec: 15000, at: 20 } }, "2026-11-12");
-  assert.equal(q.src, "manual");
+  assert.equal(paceStr(545), "9:05");
+  const days = {
+    "2026-11-03": { r: 10, lr: 10, n: 1, ls: 5700 },     // 9:30/mi, week 1
+    "2026-11-05": { r: 9, lr: 9, n: 1, ls: 4800 },       // shorter, same week: ignored
+    "2026-11-11": { r: 6, lr: 6, n: 1, ls: 3000 },       // under 8 mi: not a long run
+    "2026-11-14": { r: 11, lr: 11, n: 1, ls: 6050 },     // 9:10/mi, week 2
+    "2026-11-20": { r: 12, lr: 12, n: 1, ls: 0 }         // no duration: skipped
+  };
+  const p = longRunProjection(days, "2026-11-20");
+  assert.equal(p.d, "2026-11-14"); assert.equal(p.mi, 11);
+  assert.equal(p.sec, Math.round(550 * 26.2));
+  assert.equal(p.change, Math.round(550 * 26.2) - Math.round(570 * 26.2));
+  assert.equal(longRunProjection(days, "2026-11-13").d, "2026-11-03", "future days ignored");
+  assert.equal(longRunProjection({ "2026-11-11": { lr: 6, ls: 3000 } }, "2026-11-20"), null);
 });
 
 console.log(`${n} checks passed`);

@@ -286,7 +286,9 @@ export function swapSecondChoices(days, statusOf, first) {
   return Object.keys(days).sort().filter((d) => d > first && statusOf(d) !== "done" && !same(days[d], days[first]));
 }
 
-/* ===================== marathon estimate ===================== */
+/* ===================== marathon projection ===================== */
+
+export const LONG_MIN = 8; // miles: a week's longest run counts as its long run from here up
 
 export function hms(sec) {
   if (!sec && sec !== 0) return "";
@@ -294,22 +296,26 @@ export function hms(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
-export function parseHms(txt) {
-  const m = /^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/.exec(String(txt || ""));
-  if (!m) return null;
-  const sec = +m[1] * 3600 + +m[2] * 60 + (+m[3] || 0);
-  return sec >= 2 * 3600 && sec <= 8 * 3600 ? sec : null;
-}
+export const paceStr = (secPerMile) => {
+  const s = Math.round(secPerMile);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 
-/* The newer of the Garmin number and a typed-in one, plus the change since
- * the reading closest to a week ago. Negative change means faster. */
-export function predictor(garmin, manual, today) {
-  const g = garmin?.pred, m = manual?.pred;
-  const cur = [g && { ...g, src: "garmin" }, m && { ...m, src: "manual" }]
-    .filter((x) => x && x.sec).sort((x, y) => (y.at || 0) - (x.at || 0))[0] || null;
-  if (!cur) return null;
-  const hist = { ...(manual?.hist || {}), ...(garmin?.hist || {}) };
-  const cutoff = addDays(today, -7);
-  const older = Object.keys(hist).filter((d) => d <= cutoff).sort().pop();
-  return { sec: cur.sec, at: cur.at, src: cur.src, change: older ? cur.sec - hist[older] : null };
+/* Marathon time if the latest long run's average pace were held for 26.2.
+ * The long run is each week's longest Garmin run, if it was 8 miles or more,
+ * so a long run moved off Friday still counts. Change is against the long run
+ * before it; negative means faster. */
+export function longRunProjection(gdays, today) {
+  const best = {};
+  for (const [d, g] of Object.entries(gdays || {})) {
+    if (d > today || !((g?.lr || 0) >= LONG_MIN) || !((g?.ls || 0) > 0)) continue;
+    const w = weekOf(d);
+    if (!best[w] || g.lr > best[w].mi) best[w] = { d, mi: g.lr, sec: g.ls };
+  }
+  const runs = Object.keys(best).sort().reverse().map((w) => best[w]);
+  if (!runs.length) return null;
+  const proj = (x) => Math.round((x.sec / x.mi) * 26.2);
+  const cur = runs[0];
+  return { sec: proj(cur), pace: cur.sec / cur.mi, mi: cur.mi, d: cur.d,
+    change: runs[1] ? proj(cur) - proj(runs[1]) : null };
 }

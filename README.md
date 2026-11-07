@@ -20,9 +20,14 @@ Installs on a phone as an app. Free to run. Live at https://duffin501.github.io/
 ## The numbers
 
 Workouts done on the day, missed days, miles since 2 Nov, longest single run, long
-runs done, and Garmin's marathon race predictor with the change over the last week.
+runs done, and a marathon projection: the latest long run's average pace held for
+26.2 miles, with the change since the long run before it. A week's long run is its
+longest Garmin run if that was 8 miles or more.
 
-Miles, longest run and the predictor come from Garmin. A scheduled Claude task on
+Garmin's own race predictor isn't used: Mary's account can't read Jon's (Garmin
+quietly returns hers instead).
+
+Miles, longest run and long-run pace come from Garmin. A scheduled Claude task on
 Mary's laptop reads both Garmin accounts each morning and calls `shamrockIngest()` on
 this page while she is signed in. Until a day has Garmin data, a tapped run counts at
 its plan distance and the board says "part est."
