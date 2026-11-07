@@ -5,7 +5,8 @@ import {
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
   amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
-  needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS
+  needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS,
+  repsOf, setReps, repStep
 } from "../core.js";
 
 let n = 0;
@@ -212,6 +213,64 @@ t("swap choices", () => {
 t("hr scaling", () => {
   assert.equal(scaleNote("Solo. HR 125-143.", "easy", 172), "Solo. HR 129-147.");
   assert.equal(scaleNote("HR 100-130. Plus lift.", "bike", 172), "HR 100-130. Plus lift.");
+});
+t("own reps on threshold and interval days", () => {
+  const d0 = defaultWeek(W1), D = "2026-11-11";
+  const c = repsOf(d0[D]);
+  assert.deepEqual([c.fam, c.n, c.s, c.r, c.custom], ["thr", 4, 240, 120, false]);
+  assert.equal(repsOf(d0["2026-11-12"]), null, "a Z2 day has no reps");
+  assert.equal(repsOf({ k: "plan", src: "2026-11-25" }), null, "the 30 min test has no reps");
+  // A 3 x 8 preset is the plan's own 3 x 8 workout, to the step.
+  let d = setReps(d0, D, { n: 3, s: 480 });
+  assert.deepEqual(d[D], { k: "plan", src: D, rn: 3, rs: 480, rr: 120 });
+  let r = resolve(d[D], D);
+  assert.equal(r.title, "Threshold 3 x 8 min");
+  assert.equal(r.mi, PLAN["2026-12-30"].mi, "same miles estimate as the plan's 3 x 8");
+  const g = garminWant(d[D], D);
+  assert.equal(g.name, "SHAM // THRESHOLD 3x8MIN");
+  assert.deepEqual(g.def[2], STEPS["SHAM // THRESHOLD 3x8MIN"][2]);
+  assert.equal(g.custom, true);
+  // Steppers, and a shorter jog
+  assert.equal(repStep(d[D], "n", 1), 4);
+  assert.equal(repStep(d[D], "s", 1), 600);
+  assert.equal(repStep(d[D], "r", -1), 90);
+  d = setReps(d, D, { r: 90 });
+  r = resolve(d[D], D);
+  assert.equal(r.title, "Threshold 3 x 8 min, 90 sec jog");
+  assert.match(r.note, /HR 158-168 with 90 sec jog/);
+  assert.equal(garminWant(d[D], D).name, "SHAM // THRESHOLD 3x8MIN 90S JOG");
+  // Work cap: 45 min of threshold
+  d = setReps(d, D, { n: 3, s: 900 });
+  assert.equal(repsOf(d[D]).s, 900);
+  assert.equal(repStep(d[D], "n", 1), null, "4 x 15 would pass 45 min");
+  assert.equal(repStep(d[D], "s", 1), null);
+  assert.equal(setReps(d, D, { n: 4 }), d, "over the cap does nothing");
+  // Back to the plan's own reps clears the fields
+  d = setReps(d, D, { n: 4, s: 240, r: 120 });
+  assert.deepEqual(d[D], { k: "plan", src: D });
+  // Miles on top of reps: the cool-down takes the change
+  d = setReps(d0, D, { n: 5, s: 300 });
+  const base = resolve(d[D], D).mi;
+  d = setAmount(d, D, base + 1);
+  const gm = garminWant(d[D], D);
+  assert.equal(gm.name, `SHAM // THRESHOLD 5x5MIN @ ${base + 1} MI`);
+  assert.equal(gm.def[2][2][2], 2, "cool-down 1 mi plus 1");
+  assert.match(gm.def[1], /Reps and \d+ mi set in the Shamrock app\.$/);
+  assert.equal(setReps(d, D, { n: 4 })[D].mi, undefined, "a reps change clears changed miles");
+  // Jon's HR scaling still applies
+  const jon = garminWant(setReps(d0, D, { n: 3, s: 480 })[D], D, 172);
+  assert.equal(jon.def[2][1][2][0][3], Math.round(158 * 172 / 167));
+  // Intervals, with a 30 min cap
+  const I = "2026-12-02", d4 = setReps(defaultWeek(weekOf(I)), I, { n: 8, s: 120 });
+  assert.equal(resolve(d4[I], I).title, "Intervals 8 x 2 min");
+  assert.equal(garminWant(d4[I], I).name, "SHAM // INTERVALS 8x2MIN");
+  assert.equal(repStep(setReps(defaultWeek(weekOf(I)), I, { n: 6, s: 300 })[I], "n", 1), null);
+  // Switching the day to something else drops the reps
+  assert.deepEqual(setKind(d, D, W1, "easy")[D], { k: "easy" });
+  // A hard day borrowed from another week takes reps too
+  const b = setReps(setKind(defaultWeek(W2), "2026-11-16", W2, "int"), "2026-11-16", { n: 6, s: 180 });
+  assert.equal(resolve(b["2026-11-16"], "2026-11-16").title, "Intervals 6 x 3 min");
+  assert.equal(countOf(b), countOf(defaultWeek(W2)));
 });
 t("marathon projection from the latest long run", () => {
   assert.equal(hms(14280), "3:58:00");

@@ -63,6 +63,10 @@ const shamrock = {
           "src": { ".validate": `newData.isString() && ${unlockedOrSame}` },
           "mi": { ".validate": `newData.isNumber() && newData.val() > 0 && newData.val() <= 30 && ${unlockedOrSame}` },
           "min": { ".validate": `newData.isNumber() && newData.val() > 0 && newData.val() <= 240 && ${unlockedOrSame}` },
+          // A threshold or interval day's own reps, rep seconds and jog seconds.
+          "rn": { ".validate": `newData.isNumber() && newData.val() >= 1 && newData.val() <= 12 && ${unlockedOrSame}` },
+          "rs": { ".validate": `newData.isNumber() && newData.val() >= 30 && newData.val() <= 1800 && ${unlockedOrSame}` },
+          "rr": { ".validate": `newData.isNumber() && newData.val() >= 30 && newData.val() <= 240 && ${unlockedOrSame}` },
           "$other": { ".validate": false }
         }
       },

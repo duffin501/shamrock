@@ -18,6 +18,13 @@ week earlier, but nothing before 9 Nov is tracked.
     threshold, interval or hills day uses the plan's own session of that kind: the latest
     one on or before that day, or the first one if the block hasn't reached it yet. The long run can move and change distance (8 mi
     minimum) but never comes off the week. Race day stays put.
+  - **Threshold and interval days** also open a reps panel: presets (4 x 4, 3 x 8,
+    2 x 15 min and so on; 10 x 1 up to 4 x 5 min for intervals), then steppers for reps,
+    rep length and jog. Warm-up and cool-down stay the plan's, and the miles estimate
+    follows the reps. Work time is capped at 45 min of threshold or 30 min of intervals.
+    The day stores them as `rn`, `rs` and `rr` (reps, rep seconds, jog seconds), only
+    when they differ from the plan's own, and the watch gets a matching workout
+    (`SHAM // THRESHOLD 4x8MIN 90S JOG`; with a 2 min jog the name is the plan's own).
   - **Minus** drops a day in this order: stroller walk, bike and alt cardio, Z2 runs
     down to one (shortest first), hard days, then the last Z2. **Plus** brings them
     back in reverse.
@@ -90,7 +97,8 @@ change their own calendar, so Jon's watch needs his own task.
 
 | File | What it is |
 |---|---|
-| `plan.js` | The 20-week plan, one entry per day. Matches the Garmin calendar and the PDF. |
+| `plan.js` | The plan, one entry per day from 2 Nov (the app counts from 9 Nov). Matches the Garmin calendar and the PDF. |
+| `tools/build_pdf.py` | `python tools/build_pdf.py out.pdf` prints the plan calendar from plan.js. Rerun it after any plan change. |
 | `core.js` | All the rules: weeks, trimming, swaps, day status, season totals. No DOM. |
 | `app.js` | Screens, Firebase, the Garmin ingest hook. |
 | `tools/selftest.mjs` | `npm test` checks core.js. Run it after touching core or plan. |

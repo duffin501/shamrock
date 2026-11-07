@@ -19,6 +19,7 @@ import {
   dayNum, shortDate, longDay, weekRange, fmtNum,
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
   stepDown, stepUp, kindOptions, setKind, familyOf, FAMILY_LABEL, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
+  repsOf, setReps, repStep, REP_PRESETS, durTxt,
   lockedDays, governing, needsAutoLock,
   canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
   hms, paceStr, longRunProjection, easyMiles
@@ -688,7 +689,29 @@ function editor(days, d, w) {
     </div>` : "";
   const note = isLong ? `<p class="small">The long run can move and change distance (8 mi minimum). It can't come off the week.</p>`
     : resolve(a, d).race ? `<p class="small">Race day stays put.</p>` : "";
-  return `<div class="editor">${kinds}${amt}${note}</div>`;
+  return `<div class="editor">${kinds}${isLong ? "" : repsEditor(a, d, w)}${amt}${note}</div>`;
+}
+
+/* A threshold or interval day: presets, then reps, rep length and jog. */
+function repsEditor(a, d, w) {
+  const c = repsOf(a);
+  if (!c) return "";
+  const at = `data-d="${d}" data-w="${w}"`;
+  const presets = REP_PRESETS[c.fam].map(([n, s]) =>
+    `<button class="kbtn ${c.n === n && c.s === s ? "on" : ""}" data-act="rep-preset" data-n="${n}" data-s="${s}" ${at}>${n} x ${durTxt(s)}</button>`).join("");
+  const stepper = (f, val, label) => `<div class="rstep">
+      <button class="step sm" data-act="rep" data-f="${f}" data-dir="1" ${at} ${repStep(a, f, 1) == null ? "disabled" : ""} aria-label="More ${label}">+</button>
+      <span class="rval"><b class="mono">${val}</b><small>${label}</small></span>
+      <button class="step sm" data-act="rep" data-f="${f}" data-dir="-1" ${at} ${repStep(a, f, -1) == null ? "disabled" : ""} aria-label="Less ${label}">&minus;</button>
+    </div>`;
+  const effort = c.fam === "thr" ? scaleNote("HR 158-168", "quality", person(S.me).lt) : "5K effort";
+  const reset = c.custom ? ` <button class="link" data-act="rep-reset" ${at}>Plan: ${c.plan.n} x ${durTxt(c.plan.s)}</button>` : "";
+  return `<div class="reps">
+    <p class="eyebrow">${c.fam === "thr" ? "Threshold" : "Interval"} reps</p>
+    <div class="kinds">${presets}</div>
+    <div class="rsteps">${stepper("n", c.n, c.n === 1 ? "rep" : "reps")}${stepper("s", durTxt(c.s), "each")}${stepper("r", durTxt(c.r), "jog")}</div>
+    <p class="small">${fmtNum(c.n * c.s / 60)} min at ${effort}, plus the plan's warm-up and cool-down.${reset}</p>
+  </div>`;
 }
 
 /* ---------- Us ---------- */
@@ -838,6 +861,12 @@ root.addEventListener("click", (e) => {
       return spec ? change(w, setAmount(draft(w), d, spec.value + spec.step * +el.dataset.dir)) : undefined;
     }
     case "amt-reset": { const spec = amountSpec(draft(w)[d], d); return spec ? change(w, setAmount(draft(w), d, spec.base)) : undefined; }
+    case "rep-preset": return change(w, setReps(draft(w), d, { n: +el.dataset.n, s: +el.dataset.s }));
+    case "rep": {
+      const v = repStep(draft(w)[d], el.dataset.f, +el.dataset.dir);
+      return v == null ? undefined : change(w, setReps(draft(w), d, { [el.dataset.f]: v }));
+    }
+    case "rep-reset": { const c = repsOf(draft(w)[d]); return c ? change(w, setReps(draft(w), d, c.plan)) : undefined; }
     case "near-keep": S.sheet = null; return render();
     case "near-undo": { const x = S.sheet; S.sheet = null; return setDraft(x.w, x.prev); }
     case "reset": S.open = null; return setDraft(w, defaultWeek(w));

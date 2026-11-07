@@ -110,17 +110,17 @@ export function resolve(a, iso) {
       note: "Nothing scheduled. It turns green on its own." };
   }
   if (a.k === "plan" && planEntry(a.src)) {
-    const p = planEntry(a.src), run = RUN_KINDS.has(p.k);
-    const baseMi = p.mi || 0, baseMin = p.min || 0;
+    const p = planEntry(a.src), run = RUN_KINDS.has(p.k), own = repWorkout(a);
+    const baseMi = own ? own.mi : p.mi || 0, baseMin = p.min || 0;
     const mi = run && a.mi ? a.mi : baseMi, min = !run && a.min ? a.min : baseMin;
     const changed = run ? mi !== baseMi : min !== baseMin;
     const unit = run ? "mi" : "min";
     return {
-      kind: p.k, title: retitle(p.t, run ? baseMi : baseMin, run ? mi : min, unit),
+      kind: p.k, title: retitle(own ? own.title : p.t, run ? baseMi : baseMin, run ? mi : min, unit),
       short: changed && /\d/.test(p.s) ? p.s.replace(/[\d.]+/, fmtNum(run ? mi : min)) : p.s,
       mi, min, baseMi, baseMin, changed, est: !!p.est && !(changed && p.k !== "quality"),
-      note: p.note, rest: false, run, long: p.k === "long" || p.k === "race",
-      race: p.k === "race", src: a.src, g: p.g || ""
+      note: own ? own.note : p.note, rest: false, run, long: p.k === "long" || p.k === "race",
+      race: p.k === "race", src: a.src, g: own ? own.name : p.g || "", ownReps: !!own
     };
   }
   if (a.k === "easy") {
@@ -239,6 +239,102 @@ export function familySrc(fam, iso) {
 }
 export const familyOf = (src) => Object.keys(FAMILY).find((k) => FAMILY[k].test(planEntry(src)?.g || "")) || null;
 
+/* ---------- your own reps on a threshold or interval day (Mary, 7 Nov) ----------
+ * A threshold or interval day can set its own reps, rep length and jog. They
+ * ride on the day as rn (reps), rs (rep seconds) and rr (jog seconds), all
+ * three together and only when they differ from the plan session's own.
+ * Warm-up and cool-down stay the plan's. Work time is capped at 45 min of
+ * threshold or 30 min of intervals. */
+const REP_FAMS = new Set(["thr", "int"]);
+export const REP_CHOICES = {
+  thr: { n: [1, 2, 3, 4, 5, 6, 7, 8], s: [180, 240, 300, 360, 480, 600, 720, 900, 1200, 1500, 1800] },
+  int: { n: [2, 3, 4, 5, 6, 7, 8, 9, 10, 12], s: [30, 45, 60, 90, 120, 180, 240, 300] }
+};
+export const JOG_CHOICES = [30, 45, 60, 90, 120, 180, 240];
+export const WORK_MAX = { thr: 45 * 60, int: 30 * 60 };
+export const REP_PRESETS = {
+  thr: [[4, 240], [3, 360], [3, 480], [3, 600], [2, 720], [2, 900], [1, 1200]],
+  int: [[10, 60], [8, 120], [5, 180], [6, 180], [5, 240], [4, 300]]
+};
+export const durTxt = (s) => (s % 60 ? `${s} sec` : `${s / 60} min`);
+const durTok = (s) => (s % 60 ? `${s}S` : `${s / 60}MIN`);
+
+/* Timed steps count at 9.5 min a mile, as the plan's own estimates do. */
+const EST_PACE = 9.5;
+function stepMiles(steps, times = 1) {
+  let mi = 0;
+  for (const s of steps) {
+    if (s[0] === "r") mi += stepMiles(s[2], times * s[1]);
+    else mi += times * (s[1] === "d" ? s[2] : s[2] / 60 / EST_PACE);
+  }
+  return mi;
+}
+
+function planReps(src) {
+  const st = STEPS[planEntry(src)?.g];
+  const rep = st && st[2].find((s) => s[0] === "r");
+  const work = rep && rep[2].find((s) => s[0] === "interval"), jog = rep && rep[2].find((s) => s[0] === "recovery");
+  return work && jog && work[1] === "t" && jog[1] === "t" ? { n: rep[1], s: work[2], r: jog[2] } : null;
+}
+
+/* The reps a threshold or interval day runs: its own, else the plan's. */
+export function repsOf(a) {
+  if (a?.k !== "plan" || !REP_FAMS.has(familyOf(a.src))) return null;
+  const plan = planReps(a.src);
+  if (!plan) return null;
+  const own = a.rn && a.rs && a.rr;
+  const cur = own ? { n: a.rn, s: a.rs, r: a.rr } : { ...plan };
+  return { fam: familyOf(a.src), ...cur, plan, custom: cur.n !== plan.n || cur.s !== plan.s || cur.r !== plan.r };
+}
+
+/* New reps for a day. A change clears a changed mileage, since the session's
+ * length is now worked out again from the reps. */
+export function setReps(days, d, next) {
+  const a = days[d], cur = repsOf(a);
+  if (!cur) return days;
+  const t = { n: next.n ?? cur.n, s: next.s ?? cur.s, r: next.r ?? cur.r };
+  if (t.n * t.s > WORK_MAX[cur.fam]) return days;
+  const out = { ...a };
+  delete out.rn; delete out.rs; delete out.rr; delete out.mi;
+  if (t.n !== cur.plan.n || t.s !== cur.plan.s || t.r !== cur.plan.r) Object.assign(out, { rn: t.n, rs: t.s, rr: t.r });
+  return { ...days, [d]: out };
+}
+
+/* One tap of the reps, length or jog stepper: the next value on its list,
+ * or null when there isn't one or it would pass the work cap. */
+export function repStep(a, field, dir) {
+  const cur = repsOf(a);
+  if (!cur) return null;
+  const list = field === "r" ? JOG_CHOICES : REP_CHOICES[cur.fam][field];
+  const next = dir > 0 ? list.find((x) => x > cur[field]) : [...list].reverse().find((x) => x < cur[field]);
+  if (next == null) return null;
+  const t = { ...cur, [field]: next };
+  return t.n * t.s > WORK_MAX[cur.fam] ? null : next;
+}
+
+/* A day with its own reps: the workout built from the plan session's steps
+ * with the repeat swapped out. Same name scheme as the plan's workouts, so
+ * 3 x 8 min with a 2 min jog is the plan's own "THRESHOLD 3x8MIN". */
+function repWorkout(a) {
+  const cur = repsOf(a);
+  if (!cur?.custom) return null;
+  const [sport, , steps0] = STEPS[planEntry(a.src).g];
+  const steps = JSON.parse(JSON.stringify(steps0)).map((s) => s[0] !== "r" ? s
+    : ["r", cur.n, s[2].map((x) => x[0] === "interval" ? [x[0], "t", cur.s, x[3], x[4], x[5]]
+      : x[0] === "recovery" ? [x[0], "t", cur.r, x[3], x[4], x[5]] : x)]);
+  const thr = cur.fam === "thr", reps = `${cur.n} x ${durTxt(cur.s)}`, jog = durTxt(cur.r);
+  const warm = steps[0][2], cool = steps[steps.length - 1][2];
+  return {
+    name: `SHAM // ${thr ? "THRESHOLD" : "INTERVALS"} ${cur.n}x${durTok(cur.s)}${cur.r !== 120 ? ` ${durTok(cur.r)} JOG` : ""}`,
+    title: `${thr ? "Threshold" : "Intervals"} ${reps}${cur.r !== 120 ? `, ${jog} jog` : ""}`,
+    note: `Solo. ${warm} mi easy, reps at ${thr ? "HR 158-168" : "5K effort"} with ${jog} jog, ${cool} mi easy.`,
+    mi: Math.round(stepMiles(steps) * 2) / 2,
+    def: [sport, thr
+      ? `${reps} at HR 158 to 168 with ${jog} jog. HR lags, so ignore the first minute of each rep.`
+      : `${reps} hard, about 5K effort, with ${jog} jog. Run by effort because HR lags on short reps.`, steps]
+  };
+}
+
 /* What a day can be set to: its plan workout, Z2 easy, threshold, intervals,
  * hills, alt cardio or rest. Options that would repeat the plan are left out.
  * The long run (and race) can only move or change distance. */
@@ -300,8 +396,9 @@ export function amountSpec(a, iso) {
   if (r.race) return null;
   if (!r.run) return { unit: "min", step: 5, min: 10, max: 180, value: r.min, base: r.baseMin };
   let min = r.long ? 8 : 1;
-  if (r.kind === "quality" && r.g && STEPS[r.g]) {
-    const adj = adjustable(STEPS[r.g][2]);
+  const def = r.kind === "quality" ? baseDef(a, r) : null;
+  if (def) {
+    const adj = adjustable(def[2]);
     if (adj) min = Math.max(1, Math.ceil((r.baseMi - adj[2] + 0.25) * 2) / 2);
   }
   return { unit: "mi", step: 0.5, min, max: r.long ? 30 : 20, value: r.mi, base: r.baseMi };
@@ -337,6 +434,14 @@ function scaleSteps(steps, lt) {
  * building that workout if the person's Garmin doesn't have it yet. custom
  * means the miles or minutes were changed, so the plan's own version can't
  * be used. */
+/* The steps a plan day is built from before any change of miles: the plan
+ * session's own, or the one made from the day's own reps. */
+function baseDef(a, r) {
+  if (a?.k !== "plan") return null;
+  if (r.ownReps) return repWorkout(a).def;
+  return r.g && STEPS[r.g] ? STEPS[r.g] : null;
+}
+
 export function garminWant(a, iso, lt = BASE_LT) {
   if (isRest(a)) return null;
   const r = resolve(a, iso);
@@ -345,11 +450,14 @@ export function garminWant(a, iso, lt = BASE_LT) {
     return { name: `SHAM // Z2 ${fmtNum(r.mi)} MI`, custom: true,
       def: ["running", "Hold HR 125 to 143 and let pace fall where it falls.", scaleSteps(steps, lt)] };
   }
-  if (a.k !== "plan" || !r.g || !STEPS[r.g]) return null;
-  const [sport, desc, steps0] = STEPS[r.g];
+  const base = baseDef(a, r);
+  if (!base) return null;
+  const [sport, desc0, steps0] = base;
   const steps = JSON.parse(JSON.stringify(steps0));
   const run = sport === "running";
-  if (!r.changed) return { name: r.g, custom: false, def: [sport, desc, run ? scaleSteps(steps, lt) : steps] };
+  const set = [r.ownReps ? "reps" : "", r.changed ? `${fmtNum(run ? r.mi : r.min)} ${run ? "mi" : "min"}` : ""].filter(Boolean).join(" and ");
+  const desc = set ? `${desc0} ${set[0].toUpperCase()}${set.slice(1)} set in the Shamrock app.` : desc0;
+  if (!r.changed) return { name: r.g, custom: r.ownReps, def: [sport, desc, run ? scaleSteps(steps, lt) : steps] };
   let name;
   if (!run) {
     for (const s of steps) if (s[1] === "t") s[2] = r.min * 60;
@@ -359,8 +467,7 @@ export function garminWant(a, iso, lt = BASE_LT) {
     if (adj) adj[2] = Math.max(0.25, Math.round((adj[2] + r.mi - r.baseMi) * 100) / 100);
     name = /^SHAM \/\/ (Z2|LONG) [\d.]+ MI$/.test(r.g) ? r.g.replace(/[\d.]+ MI$/, `${fmtNum(r.mi)} MI`) : `${r.g} @ ${fmtNum(r.mi)} MI`;
   }
-  return { name, custom: true, def: [sport, `${desc} Set to ${fmtNum(run ? r.mi : r.min)} ${run ? "mi" : "min"} in the Shamrock app.`,
-    run ? scaleSteps(steps, lt) : steps] };
+  return { name, custom: true, def: [sport, desc, run ? scaleSteps(steps, lt) : steps] };
 }
 
 /* ===================== locked weeks ===================== */
