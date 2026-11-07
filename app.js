@@ -718,11 +718,73 @@ function tabWeek() {
       <div class="seg who">${ids().map((x) => `<button class="${id === x ? "on" : ""} p-${x}" data-act="who" data-who="${x}">${esc(nameOf(x))}</button>`).join("")}</div>
     </div>`;
 
+  const cal = seasonCalendar(id);
   if (!inPlan(w)) {
-    return head + `<section class="block"><p class="note">${w > LAST_WEEK ? "That's past race day." : "Week 1 starts 9 November. This week isn't tracked."}</p></section>`;
+    return head + `<section class="block"><p class="note">${w > LAST_WEEK ? "That's past race day." : "Week 1 starts 9 November. This week isn't tracked."}</p></section>` + cal;
   }
-  if (mine && plannable().includes(w)) return head + planner(w);
-  return head + weekLocked(id, w, governing(person(id).weeks, w));
+  if (mine && plannable().includes(w)) return head + planner(w) + cal;
+  return head + weekLocked(id, w, governing(person(id).weeks, w)) + cal;
+}
+
+/* Calendar cells are about 40 px wide on a phone: short words that can wrap
+ * to two lines, like the PDF's titles cut down ("THR 4x4", "Z2 4 +S"). */
+function calLabel(r) {
+  if (r.rest) return "Rest";
+  if (r.race) return "RACE";
+  if (r.long) return `LR ${fmtNum(r.mi)}`;
+  if (r.kind === "bike") return `Bike ${r.min}`;
+  if (r.kind === "walk") return `Walk ${r.min}`;
+  if (r.kind === "alt") return `Alt ${r.min}`;
+  if (r.kind === "easyrun") return `Z2 ${fmtNum(r.mi)}`;
+  const reps = /(\d+) x (\d+) (min|sec)/.exec(r.title);
+  const rx = reps ? `${reps[1]}x${reps[2]}${reps[3] === "sec" ? "s" : ""}` : "";
+  if (/^Threshold/.test(r.title) && rx) return `THR ${rx}`;
+  if (/^Intervals/.test(r.title) && rx) return `INT ${rx}`;
+  if (/^Hills/.test(r.title) && rx) return `Hills ${rx}`;
+  if (/test/i.test(r.title)) return "TEST";
+  if (/^Tune-up/.test(r.title)) return "Tune-up";
+  return (r.short || "").replace("+S", " +S");
+}
+
+/* The whole block on one screen, the way the PDF lays it out: each week a row,
+ * each day its planned workout, and once a day has passed, what was actually
+ * done (Garmin miles, else Garmin minutes, else a tap) in green or red. Your
+ * own next week shows your edits as you make them. Tap a day for detail. */
+function seasonCalendar(id) {
+  const s = SEASON[id], p = person(id), gdays = p.garmin?.days || {}, mine = id === S.me;
+  const cur = weekOf(s.today);
+  const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const rows = [];
+  for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
+    const days = mine && plannable().includes(w) ? draft(w) : governing(p.weeks, w).days;
+    let planMi = 0, didMi = 0;
+    const cells = weekDates(w).map((d) => {
+      const a = days[d], r = resolve(a, d), st = d < SEASON_START ? "before" : s.status[d];
+      if (r.run) planMi += r.mi || 0;
+      const past = d <= s.today, gm = gdays[d];
+      if (past) didMi += gm?.r || 0;
+      const moved = (gm?.r || 0) >= 0.1 || (gm?.t || 0) > 0;
+      const did = !past || (r.rest && !moved) ? ""
+        : (gm?.r || 0) >= 0.1 ? `${fmtNum(Math.round(gm.r * 10) / 10)}`
+        : (gm?.t || 0) > 0 ? `${Math.round(gm.t / 60)}m`
+        : st === "done" ? "done" : st === "miss" ? "miss" : "";
+      const dn = dayNum(d) === 1 ? `${MON3[+d.slice(5, 7) - 1]} 1` : dayNum(d);
+      const kind = r.rest ? "rest" : r.long ? "long" : r.kind === "quality" ? "hard" : r.run ? "z2" : "cross";
+      return `<button class="cday ck-${kind} st-${st} ${d === s.today ? "is-today" : ""}" data-act="calday" data-id="${id}" data-d="${d}" title="${esc(r.title)}">
+        <span class="cdn mono">${dn}</span><span class="cpl">${esc(calLabel(r))}</span>${did ? `<span class="cdid mono">${esc(did)}</span>` : ""}
+      </button>`;
+    }).join("");
+    const started = w <= cur;
+    rows.push(`<div class="cweek ${w === cur ? "is-cur" : ""}">${cells}
+      <div class="cwk"><span class="mono">Wk ${weekNo(w)}</span><b class="mono">${Math.round(planMi)}</b>${started ? `<span class="mono did">${fmtNum(Math.round(didMi * 10) / 10)}</span>` : ""}</div>
+    </div>`);
+  }
+  return `<section class="block cal">
+    <div class="block-head"><p class="eyebrow">Season calendar · ${esc(nameOf(id))}</p><p class="eyebrow">to race day</p></div>
+    <div class="chead">${DOW.map((x) => `<span>${x[0]}</span>`).join("")}<span>mi</span></div>
+    ${rows.join("")}
+    <p class="note small">Each day shows the plan, then what was done: Garmin miles, minutes for non-runs, or "done" for a tap. The right column is planned miles, then actual. Tap a day for the details.</p>
+  </section>`;
 }
 
 function weekLocked(id, w, g) {
@@ -982,6 +1044,27 @@ function sheet() {
       <p class="small">Back-to-back hard days are where injuries come from. Keep it only if you mean it.</p>
       <button class="primary big" data-act="near-keep">Keep it there</button>
       <button class="ghost wide" data-act="near-undo">Undo</button>`;
+  } else if (x.kind === "day") {
+    const p = person(x.id), s = SEASON[x.id], d = x.d;
+    const days = x.id === S.me && plannable().includes(weekOf(d)) ? draft(weekOf(d)) : governing(p.weeks, weekOf(d)).days;
+    const r = resolve(days[d], d), gm = p.garmin?.days?.[d], st = d < SEASON_START ? "before" : s.status[d];
+    const facts = [];
+    if (gm && ((gm.r || 0) > 0 || (gm.t || 0) > 0 || (gm.n || 0) > 0)) {
+      if ((gm.r || 0) > 0) facts.push(`${fmtNum(Math.round(gm.r * 10) / 10)} mi run${(gm.lr || 0) > 0 && gm.lr < gm.r ? ` (longest ${fmtNum(Math.round(gm.lr * 10) / 10)})` : ""}`);
+      if ((gm.ls || 0) > 0 && (gm.lr || 0) > 0) facts.push(`${paceStr(gm.ls / gm.lr)}/mi`);
+      if ((gm.t || 0) > 0) facts.push(`${Math.round(gm.t / 60)} min on the watch`);
+      if ((gm.n || 0) > 1) facts.push(`${gm.n} activities`);
+    }
+    if (p.log[d]?.done) facts.push(p.log[d].late ? "tapped done the next morning" : "tapped done");
+    const actual = d > s.today ? "Hasn't happened yet."
+      : facts.length ? facts.join(" · ")
+      : r.rest ? "Rest day." : st === "today" ? "Nothing logged yet today." : "Nothing logged.";
+    const word = { done: "Green", rest: "Green", miss: "Red", today: "Today", grace: "Log by noon" }[st] || "";
+    inner = `<p class="eyebrow">${esc(nameOf(x.id))} · ${esc(longDay(d))}${word ? ` · ${word}` : ""}</p>
+      <h3 class="disp">${esc(r.title)}</h3>
+      ${r.rest ? "" : `<p class="mono small">${esc(meta(r))}</p><p>${esc(noteFor(r, x.id))}</p>`}
+      <p class="small"><b>Actual:</b> ${esc(actual)}</p>
+      <button class="ghost wide" data-act="close">Close</button>`;
   } else if (x.kind === "lt") {
     inner = `<h3 class="disp">Threshold HR</h3>
       <p class="small">From your 30 minute test: the average HR of the last 20 minutes. Run bands in the app scale from it.</p>
@@ -1025,6 +1108,7 @@ root.addEventListener("click", (e) => {
       return spec ? change(w, setAmount(draft(w), d, spec.value + spec.step * +el.dataset.dir)) : undefined;
     }
     case "amt-reset": { const spec = amountSpec(draft(w)[d], d); return spec ? change(w, setAmount(draft(w), d, spec.base)) : undefined; }
+    case "calday": S.sheet = { kind: "day", id: el.dataset.id, d }; return render();
     case "shoot": return shooter.click();
     case "unshoot": return removePhoto();
     case "zoom": return zoomPhoto(el.dataset.id, d);

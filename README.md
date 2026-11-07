@@ -33,6 +33,14 @@ week earlier, but nothing before 9 Nov is tracked.
   - "Below plan" shows under 4 workout days for Mary and under 3 for Jon (alt counts).
 - **One swap a week** after that. Trade two days that haven't happened yet. Today
   counts as not happened until you log it.
+- **Season calendar** at the bottom of the Week tab, for whoever you're looking at:
+  every week to race day as a row, like the PDF. Each day shows its planned workout
+  in short form ("THR 4x4", "Z2 4 +S", "LR 15") with the PDF's colour on its edge
+  (long green, hard red, Z2 blue, bike and walk grey). Once a day has passed it shows
+  what was done (Garmin miles, else Garmin minutes, else "done" for a tap, or "miss")
+  and turns green or red. The right column is planned miles, then actual miles for
+  weeks that have started. Your own next week follows your edits live. Tap a day for
+  the full workout, notes and what Garmin saw.
 - **Green or red.** Tap Done and the day goes green. A rest day goes green by itself.
   Forgot to tap? You have until noon the next day, and the Garmin sync also marks a
   day done when it finds the activity. After that an undone day is red for good.

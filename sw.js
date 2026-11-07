@@ -12,7 +12,7 @@
  *   Icons, fonts, the pinned Firebase SDK  ->  cache first.
  *     These are effectively immutable, and they are the slow ones. */
 
-const CACHE = "shamrock-v12";
+const CACHE = "shamrock-v13";
 const SDK = "https://www.gstatic.com/firebasejs/11.10.0/";
 
 const CODE = ["./", "index.html", "styles.css", "app.js", "core.js", "plan.js", "config.js", "manifest.webmanifest"];
@@ -30,7 +30,12 @@ self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(CACHE);
     // One bad URL must not sink the whole install, so add them one at a time.
-    await Promise.all([...CODE, ...STATIC].map((u) => cache.add(u).catch(() => {})));
+    // Code skips the browser's HTTP cache: GitHub Pages lets it keep files for
+    // 10 minutes, and a fresh install must not bank the previous build.
+    await Promise.all([
+      ...CODE.map((u) => cache.add(new Request(u, { cache: "reload" })).catch(() => {})),
+      ...STATIC.map((u) => cache.add(u).catch(() => {}))
+    ]);
     await self.skipWaiting();
   })());
 });
@@ -65,7 +70,9 @@ self.addEventListener("fetch", (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
 
-    const fromNetwork = fetch(req).then((res) => {
+    // App code revalidates with the server every time (a 304 when nothing
+    // changed), so a deploy shows up on the next open, not 10 minutes later.
+    const fromNetwork = (networkFirst ? fetch(req.url, { cache: "no-cache", credentials: "same-origin" }) : fetch(req)).then((res) => {
       if (res && (res.ok || res.type === "opaque")) cache.put(req, res.clone()).catch(() => {});
       return res;
     }).catch(() => null);
