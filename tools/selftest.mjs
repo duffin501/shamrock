@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   PLAN, STEPS, addDays, weekOf, weekNo, clock, defaultWeek, countOf, planCount,
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
-  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, lockOpen, midnightIn,
+  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, LAST_WEEK, SEASON_START, TOTAL_WEEKS
 } from "../core.js";
@@ -30,18 +30,21 @@ t("clock per timezone", () => {
   assert.deepEqual([clock("America/New_York", now).iso, clock("America/New_York", now).hour], ["2026-11-09", 0]);
   assert.deepEqual([clock("America/Denver", now).iso, clock("America/Denver", now).dow], ["2026-11-08", 6]);
 });
-t("lock-in is open all weekend for the next week only", () => {
-  const sun = clock("America/New_York", Date.parse("2026-11-08T13:00:00Z")); // Sun 8 AM
-  const sat = clock("America/New_York", Date.parse("2026-11-07T23:00:00Z")); // Sat 6 PM
-  const fri = clock("America/New_York", Date.parse("2026-11-07T03:00:00Z")); // Fri 10 PM
-  const mon = clock("America/New_York", Date.parse("2026-11-09T05:30:00Z")); // Mon 00:30
-  assert.equal(lockOpen(sun, W1), true);
-  assert.equal(lockOpen(sat, W1), true);
-  assert.equal(lockOpen(fri, W1), false);
-  assert.equal(lockOpen(mon, W2), false);
-  assert.equal(lockOpen(sun, W2), false);
-  // Jon at 10:30 PM Sunday Mountain can still lock
-  assert.equal(lockOpen(clock("America/Denver", Date.parse("2026-11-09T05:30:00Z")), W1), true);
+t("next week is editable any day until midnight Sunday", () => {
+  const tue = clock("America/New_York", Date.parse("2026-11-10T14:00:00Z"));
+  const sun = clock("America/New_York", Date.parse("2026-11-15T23:00:00Z"));
+  const mon = clock("America/New_York", Date.parse("2026-11-16T05:30:00Z")); // Mon 00:30
+  assert.equal(canEdit(tue, W2), true);
+  assert.equal(canEdit(sun, W2), true);
+  assert.equal(canEdit(mon, W2), false, "it's this week now");
+  assert.equal(canEdit(tue, W1), false, "this week isn't editable");
+  assert.equal(canEdit(clock("America/Denver", Date.parse("2026-11-16T05:30:00Z")), W2), true, "Jon: still Sunday night");
+});
+t("saved edits govern, then lock as left", () => {
+  const edited = moveDay(defaultWeek(W2), "2026-11-20", "2026-11-21");
+  const g = governing({ [W2]: { days: edited, saved: 1, closesAt: 2 } }, W2);
+  assert.equal(g.draft, true); assert.equal(longSlot(g.days), "2026-11-21");
+  assert.equal(needsAutoLock({ [W2]: { days: edited } }, W2, "2026-11-16"), true);
 });
 t("closesAt is Monday midnight in each timezone", () => {
   assert.equal(midnightIn(W1, "America/New_York"), Date.parse("2026-11-09T05:00:00Z"));

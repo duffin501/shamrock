@@ -31,10 +31,11 @@ const per = (fn) => Object.fromEntries(ids.map((id) => [id, fn(id)]));
 
 // Dates are YYYY-MM-DD, checked by shape rather than regex to keep escaping out of it.
 const isDate = (x) => `${x}.length === 10 && ${x}.beginsWith('20')`;
-// A locked week's days can't change, except before its closesAt (midnight
-// Sunday, when lock-in closes): until then it can be unlocked and relocked.
+// A week's days can change only before its closesAt (Monday 00:00 in the
+// person's timezone, when the week locks itself). A brand-new record is fine
+// (the auto-lock of an untouched week writes one after Monday).
 const W = "data.parent().parent().parent()";
-const unlockedOrSame = `(!${W}.child('lockedAt').exists() || (${W}.child('closesAt').isNumber() && now < ${W}.child('closesAt').val()) || newData.val() === data.val())`;
+const unlockedOrSame = `(!${W}.exists() || (${W}.child('closesAt').isNumber() && now < ${W}.child('closesAt').val()) || newData.val() === data.val())`;
 
 const shamrock = {
   ".read": either,
@@ -46,13 +47,16 @@ const shamrock = {
   })),
   "weeks": per((id) => ({
     "$wk": {
-      ".write": `${owner(id)} && (!data.child('lockedAt').exists() || (data.child('closesAt').isNumber() && now < data.child('closesAt').val()) || newData.child('lockedAt').val() === data.child('lockedAt').val())`,
-      ".validate": `${isDate("$wk")} && newData.hasChildren(['days','lockedAt'])`,
+      // Any write before closesAt. After it: no deleting, and only writes that
+      // keep a lock in place (the swap) or add one (the auto-lock).
+      ".write": `${owner(id)} && (!data.exists() || (data.child('closesAt').isNumber() && now < data.child('closesAt').val()) || (newData.exists() && newData.child('lockedAt').exists() && (!data.child('lockedAt').exists() || newData.child('lockedAt').val() === data.child('lockedAt').val())))`,
+      ".validate": `${isDate("$wk")} && newData.hasChildren(['days'])`,
       "lockedAt": { ".validate": "newData.isNumber()" },
       "auto": { ".validate": "newData.isBoolean()" },
       "count": { ".validate": "newData.isNumber()" },
-      // Monday 00:00 in the person's timezone. Never more than 3 days out.
-      "closesAt": { ".validate": "newData.isNumber() && newData.val() <= now + 259200000" },
+      // Monday 00:00 in the person's timezone. Never more than 8 days out.
+      "closesAt": { ".validate": "newData.isNumber() && newData.val() <= now + 691200000" },
+      "saved": { ".validate": "newData.isNumber()" },
       "days": {
         "$d": {
           "k": { ".validate": `newData.isString() && ${unlockedOrSame}` },

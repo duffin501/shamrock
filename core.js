@@ -37,11 +37,10 @@ export const weekNo = (w) => Math.floor(diffDays(FIRST_WEEK, w) / 7) + 1;
 export const inPlan = (w) => w >= FIRST_WEEK && w <= LAST_WEEK;
 export const TOTAL_WEEKS = Math.floor(diffDays(FIRST_WEEK, weekOf(RACE_DAY)) / 7) + 1;
 
-/* Lock-in is open all weekend, Saturday and Sunday in your own timezone, for
- * the week that starts Monday. Until midnight Sunday you can lock, unlock and
- * lock again (Mary, 7 Nov). Then it closes and an unlocked week becomes the
- * plan's week. */
-export const lockOpen = (clk, w) => clk.dow >= 5 && w === addDays(weekOf(clk.iso), 7) && inPlan(w);
+/* Next week can be edited any day of the current week; changes save as you
+ * go and the week locks itself at midnight Sunday, your time, as you left it
+ * (Mary, 7 Nov). On Monday it becomes "this week". */
+export const canEdit = (clk, w) => inPlan(w) && w === addDays(weekOf(clk.iso), 7);
 
 /* The moment a date starts in a timezone, as epoch ms. A locked week stores
  * its Monday's midnight as closesAt; the database rules use it to allow an
@@ -344,14 +343,15 @@ export function lockedDays(rec) {
   return days;
 }
 
-/* The week that governs a date: the locked week, or the plan's week if it
- * was never locked. Same for both of you, from week 1 on. */
+/* The week that governs a date: the locked week; else the saved edits (they
+ * lock themselves at midnight Sunday); else the plan's week. */
 export function governing(weeks, w) {
   const rec = weeks?.[w];
   const locked = lockedDays(rec);
   if (locked) return { days: locked, locked: true, auto: !!rec.auto, rec };
-  if (inPlan(w)) return { days: defaultWeek(w), locked: false, auto: true, rec: null };
-  return null;
+  if (!inPlan(w)) return null;
+  if (rec?.days) return { days: rec.days, locked: false, auto: false, draft: true, rec };
+  return { days: defaultWeek(w), locked: false, auto: true, rec: null };
 }
 
 /* Whether a week that has already begun should be written down as the

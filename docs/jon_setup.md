@@ -62,9 +62,10 @@ scheduled task.
    "Jon runs synced <time> · watch calendar <time>". Until Jon locks in a week, the
    calendar part has nothing to change, which is normal.
 
-6. **Tell Jon how it works:** lock-in is open Saturday and Sunday (his time) for the
-   week ahead, and he can lock and unlock until midnight Sunday. He can drag days around and change miles. If he doesn't lock, the plan's week
-   is his week. The next sync (20:00 or 04:00) moves his Garmin workouts to match,
+6. **Tell Jon how it works:** next week is open for changes any day, in the app's Week
+   tab, and changes save as he goes. He can drag days around and change miles. At
+   midnight Sunday (his time) it locks as he left it, or as the plan's week if he never
+   changed it. The next sync (20:00 or 04:00) moves his Garmin workouts to match,
    building custom ones for changed miles, and his watch picks them up when it syncs with
    his phone. To change a workout, he changes it in the app. If
    he edits the `SHAM //` workouts in Garmin directly, the sync will put them back.

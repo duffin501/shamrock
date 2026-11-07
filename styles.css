@@ -326,3 +326,6 @@ button.row:active{transform:scale(.99)}
 .amt b{font-size:22px; font-weight:500; min-width:84px; text-align:center}
 .step.sm{width:44px; height:44px; border-radius:50%; border:1.5px solid var(--rule-2); font-size:22px; display:grid; place-items:center; background:var(--surface)}
 .editor .small{color:var(--ink-3); font-size:12.5px}
+
+.savebar{font-size:13px; color:var(--ink-2); background:var(--surface-2); border-radius:12px; padding:10px 12px; margin:2px 0 4px}
+.savebar b{color:var(--ink); margin-right:4px}
