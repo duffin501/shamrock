@@ -14,7 +14,7 @@
 
 import { FIREBASE, PEOPLE } from "./config.js";
 import {
-  PLAN, RACE_DAY, BASE_LT, DOW, SEASON_START, TOTAL_WEEKS, FIRST_WEEK,
+  PLAN, planEntry, RACE_DAY, BASE_LT, DOW, SEASON_START, TOTAL_WEEKS, FIRST_WEEK,
   addDays, diffDays, dowIdx, weekOf, weekDates, weekNo, inPlan, LAST_WEEK, clock, canEdit, midnightIn,
   dayNum, shortDate, longDay, weekRange, fmtNum,
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
@@ -258,14 +258,14 @@ window.shamrockSyncInput = () => {
     const out = {};
     for (const d of weekDates(w)) {
       const a = days[d] || { k: "rest" };
-      out[d] = a.k === "plan" ? { k: "plan", src: a.src, g: PLAN[a.src]?.g || "" } : { k: a.k };
+      out[d] = a.k === "plan" ? { k: "plan", src: a.src, g: planEntry(a.src)?.g || "" } : { k: a.k };
       // want: a workout that must be exactly this (changed miles/minutes or an
       // easy run). def: how to build it if that Garmin account doesn't have it.
       const gw = garminWant(a, d, p.lt);
       if (gw?.custom) out[d].want = gw.name;
       if (gw) out[d].def = gw.def;
     }
-    weeks.push({ w, days: out, easy: `SHAM // Z2 ${easyMiles(w)} MI`, base: p.garmin?.base?.[w] || null });
+    weeks.push({ w, days: out, easy: `SHAM // Z2 ${easyMiles(w)} MI` });
   }
   return JSON.stringify({ who: S.me, today: s.today, alsoJon: S.me === "mary", weeks });
 };

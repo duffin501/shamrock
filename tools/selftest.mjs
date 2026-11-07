@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   PLAN, STEPS, addDays, weekOf, weekNo, clock, defaultWeek, countOf, planCount,
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
-  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn,
+  amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, LAST_WEEK, SEASON_START, TOTAL_WEEKS
 } from "../core.js";
@@ -59,9 +59,9 @@ t("default week: 7 days, long on Friday", () => {
   assert.equal(longSlot(defaultWeek(LAST_WEEK)), "2027-03-21");
 });
 t("drop order: walk, bike, Z2s down to one, hard, last Z2, never long", () => {
-  // Week 2: Mon Z2 4, Tue bike 40, Wed hills, Thu Z2 4, Fri long 12, Sat walk, Sun Z2 3
+  // Week 2: Mon Z2 4, Tue bike 40, Wed threshold 3x6, Thu Z2 4 + strides (~5), Fri long 12, Sat walk, Sun Z2 3
   const o = dropOrder(defaultWeek(W2));
-  assert.deepEqual(o, ["2026-11-21", "2026-11-17", "2026-11-22", "2026-11-19", "2026-11-18", "2026-11-16"]);
+  assert.deepEqual(o, ["2026-11-21", "2026-11-17", "2026-11-22", "2026-11-16", "2026-11-18", "2026-11-19"]);
   let d = defaultWeek(W2);
   for (let i = 0; i < 10; i++) d = stepDown(d);
   assert.equal(countOf(d), 1);
@@ -70,14 +70,14 @@ t("drop order: walk, bike, Z2s down to one, hard, last Z2, never long", () => {
 t("step up brings days back in reverse", () => {
   let d = defaultWeek(W2);
   for (let i = 0; i < 6; i++) d = stepDown(d);
-  d = stepUp(d, W2); assert.deepEqual(Object.keys(d).filter((x) => d[x].k !== "rest"), ["2026-11-16", "2026-11-20"]);
+  d = stepUp(d, W2); assert.deepEqual(Object.keys(d).filter((x) => d[x].k !== "rest"), ["2026-11-19", "2026-11-20"]);
   d = stepUp(d, W2); assert.equal(d["2026-11-18"].k, "plan", "hard day next");
   for (let i = 0; i < 9; i++) d = stepUp(d, W2);
   assert.deepEqual(d, defaultWeek(W2));
 });
 t("kind options and setKind", () => {
   const d = defaultWeek(W2);
-  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "alt", "rest"], "hills day: no separate Hills button");
+  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.key), ["plan", "easy", "int", "hills", "alt", "rest"], "threshold day: no separate Threshold button");
   assert.deepEqual(kindOptions(d, "2026-11-16", W2).map((o) => o.key), ["plan", "thr", "int", "hills", "alt", "rest"]);
   assert.deepEqual(kindOptions(d, "2026-11-17", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "hills", "rest"]);
   assert.deepEqual(kindOptions(d, "2026-11-20", W2), [], "long run can't change kind");
@@ -104,6 +104,22 @@ t("drag swaps two days, race stays", () => {
   const r = defaultWeek(LAST_WEEK);
   assert.deepEqual(moveDay(r, "2027-03-21", "2027-03-19"), r);
 });
+t("coaching changes of 7 Nov are in the plan", () => {
+  for (let w = W1; w <= LAST_WEEK; w = addDays(w, 7)) {
+    const hard = weekDates(w).filter((d) => /THRESHOLD|INTERVALS|30 MIN TEST/.test(PLAN[d].g || ""));
+    if (w !== LAST_WEEK) assert.ok(hard.length >= 1, "a threshold or interval session in week of " + w);
+  }
+  assert.equal(PLAN["2026-11-11"].t, "Threshold 4 x 4 min");
+  assert.equal(PLAN["2026-12-14"].t, "Z2 6 mi");
+  assert.equal(PLAN["2026-12-18"].g, "SHAM // LONG 15 MI LAST 2 MP");
+  assert.equal(PLAN["2027-03-12"].g, "SHAM // LONG 9 MI LAST 3 MP");
+  assert.equal(PLAN["2027-02-26"].mi, 25, "the 25 stays");
+  assert.ok(/STRIDES/.test(PLAN["2026-11-19"].g) && /hill/.test(PLAN["2026-11-19"].note), "Thursday hill strides");
+  assert.ok(/STRIDES/.test(PLAN["2027-02-11"].g) && !/hill/.test(PLAN["2027-02-11"].note));
+  assert.equal(familySrc("hills", "2026-11-16"), "hills-60");
+  assert.equal(familySrc("hills", "2027-01-20"), "hills-90");
+  assert.equal(resolve(setKind(defaultWeek(W2), "2026-11-16", W2, "hills")["2026-11-16"], "2026-11-16").title, "Hills 6 x 60 sec");
+});
 t("hard day next to the long run", () => {
   assert.deepEqual(hardNextToLong(defaultWeek(W2)), []);
   assert.deepEqual(hardNextToLong(moveDay(defaultWeek(W2), "2026-11-18", "2026-11-19")), ["2026-11-19"]);
@@ -119,7 +135,7 @@ t("amounts", () => {
   assert.deepEqual(setAmount(d, "2026-11-13", 11)["2026-11-13"], { k: "plan", src: "2026-11-13" }, "back to plan clears it");
   d = setAmount(d, "2026-11-10", 50);
   assert.equal(resolve(d["2026-11-10"], "2026-11-10").title, "Bike 50 min");
-  const hills = { k: "plan", src: "2026-11-18" };
+  const hills = { k: "plan", src: "hills-60" };
   assert.equal(amountSpec(hills, "2026-11-18").min, 4, "hills can only lose the cool-down");
   assert.equal(resolve({ ...hills, mi: 6 }, "2026-11-18").title, "Hills 6 x 60 sec · 6 mi");
   assert.equal(amountSpec(defaultWeek(LAST_WEEK)["2027-03-21"], "2027-03-21"), null, "race distance is fixed");
@@ -127,9 +143,9 @@ t("amounts", () => {
 t("watch workouts", () => {
   assert.equal(garminWant({ k: "plan", src: "2026-11-13" }, "2026-11-13").name, "SHAM // LONG 11 MI");
   assert.equal(garminWant({ k: "plan", src: "2026-11-13", mi: 12.5 }, "2026-11-13").name, "SHAM // LONG 12.5 MI");
-  const h = garminWant({ k: "plan", src: "2026-11-18", mi: 6 }, "2026-11-18");
+  const h = garminWant({ k: "plan", src: "hills-60", mi: 6 }, "2026-11-18");
   assert.equal(h.name, "SHAM // HILLS 6x60S @ 6 MI");
-  assert.equal(h.def[2][2][2], 1.0 + 6 - resolve({ k: "plan", src: "2026-11-18" }, "2026-11-18").mi, "cool-down took the extra");
+  assert.equal(h.def[2][2][2], 1.0 + 6 - resolve({ k: "plan", src: "hills-60" }, "2026-11-18").mi, "cool-down took the extra");
   assert.equal(garminWant({ k: "plan", src: "2026-11-17", min: 50 }, "2026-11-17").name, "SHAM // BIKE EASY 50 MIN");
   assert.equal(garminWant({ k: "plan", src: "2026-11-17", min: 50 }, "2026-11-17").def[2][0][2], 3000);
   assert.equal(garminWant({ k: "easy", mi: 5 }, "2026-11-16").name, "SHAM // Z2 5 MI");

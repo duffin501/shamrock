@@ -11,18 +11,16 @@
  *    Mary's account, Jon through his profile as a fallback). Each day is
  *    [run miles, longest run miles, activity count, longest run seconds].
  *
- * 2. Makes the Garmin calendar match each locked week, so the right
- *    structured workout is on the watch. Only "SHAM //" workouts are touched,
- *    only from today forward. The first time it sees a locked week it records
- *    what that week's calendar already had (the "base") and changes nothing;
- *    the app stores the base and the next pass moves those same workouts
- *    around. That keeps each person's own versions (Mary's 45 min bikes,
- *    Jon's HR-scaled runs). A day whose miles or minutes were changed in the
- *    app, or an easy run, comes with an exact workout ("want") and its steps
- *    ("def"); if that workout doesn't exist yet in this Garmin account it is
- *    created. Old "STROLLER Z2" workouts are replaced by the plain "Z2" ones
- *    (Mary dropped the stroller label, 7 Nov). Rest, alt cardio and walk days
- *    are left blank on the watch.
+ * 2. Makes the Garmin calendar match the app's week (this week and next),
+ *    so the right structured workout is on the watch. Each day carries the
+ *    plan's Garmin workout name ("g"), or an exact one ("want") when its miles
+ *    or minutes were changed or it's an easy run, plus its steps ("def"). The
+ *    workout is scheduled by name, so each account uses its own version (Jon's
+ *    carry his heart rate targets); a name the account doesn't have yet is
+ *    created from def. Only "SHAM //" workouts are touched, only from today
+ *    forward. Rest, alt cardio and walk days are left blank on the watch.
+ *    (Until 7 Nov this kept a snapshot of each week's calendar. The plan is
+ *    now the single source, so plan changes reach both watches.)
  *
  * Set dry: true in the input to get the planned changes without making them.
  * Starts with a top-level await so the javascript tool waits for the result.
@@ -124,7 +122,6 @@ await (async () => {
   /* ---------- 2. calendar ---------- */
   const weeks = (IN.weeks || []).filter((wk) => add(wk.w, 6) >= IN.today);
   const cal = { added: 0, removed: 0, failed: 0, missing: [], through: "" };
-  out.base = {};
   if (weeks.length) {
     const ids = {};
     for (const w of (await req("/gc-api/workout-service/workouts?start=1&limit=500&myWorkoutsOnly=true")) || []) {
@@ -144,24 +141,13 @@ await (async () => {
     const actions = [], missing = new Set();
     for (const wk of weeks) {
       const dates = [0, 1, 2, 3, 4, 5, 6].map((i) => add(wk.w, i));
-      if (!wk.base) {
-        // First sight of this locked week: record it, change nothing yet.
-        out.base[wk.w] = Object.fromEntries(dates.map((d) => [d, onDay[d]?.[0]?.title || ""]));
-        out.again = true;
-        continue;
-      }
-      const B = wk.base, none = (v) => !v || v === "-";
-      const hasBase = Object.values(B).some((v) => !none(v));
       for (const d of dates) {
         if (d < IN.today) continue;
         const a = wk.days[d] || { k: "rest" };
         let want = "", def = null;
         if (a.want) { want = a.want; def = a.def || null; }
-        else if (a.k === "plan") {
-          want = hasBase && a.src in B ? (none(B[a.src]) ? "" : B[a.src]) : (a.g || "");
-          want = want.replace("SHAM // STROLLER Z2 ", "SHAM // Z2 ");
-          if (want && want === a.g) def = a.def || null;
-        } else if (a.k === "easy") want = wk.easy || "";
+        else if (a.k === "plan") { want = a.g || ""; def = a.def || null; }
+        else if (a.k === "easy") want = wk.easy || "";
         let kept = false;
         for (const it of (onDay[d] || [])) {
           if (want && !kept && it.title === want) { kept = true; continue; }

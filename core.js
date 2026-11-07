@@ -12,9 +12,12 @@
  * Everything time-related takes the person's own timezone, so each of you
  * gets your own midnight and your own noon. */
 
-import { PLAN, STEPS, PLAN_START, RACE_DAY, BASE_LT } from "./plan.js";
+import { PLAN, LIBRARY, STEPS, PLAN_START, RACE_DAY, BASE_LT } from "./plan.js";
 
-export { PLAN, STEPS, PLAN_START, RACE_DAY, BASE_LT };
+export { PLAN, LIBRARY, STEPS, PLAN_START, RACE_DAY, BASE_LT };
+
+/* A session by its source: a plan date, or a library name (hills). */
+export const planEntry = (src) => PLAN[src] || LIBRARY[src] || null;
 
 export const RUN_KINDS = new Set(["easy", "quality", "long", "race", "easyrun"]);
 export const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -106,8 +109,8 @@ export function resolve(a, iso) {
     return { kind: "rest", title: "Rest day", short: "REST", rest: true, run: false, long: false,
       note: "Nothing scheduled. It turns green on its own." };
   }
-  if (a.k === "plan" && PLAN[a.src]) {
-    const p = PLAN[a.src], run = RUN_KINDS.has(p.k);
+  if (a.k === "plan" && planEntry(a.src)) {
+    const p = planEntry(a.src), run = RUN_KINDS.has(p.k);
     const baseMi = p.mi || 0, baseMin = p.min || 0;
     const mi = run && a.mi ? a.mi : baseMi, min = !run && a.min ? a.min : baseMin;
     const changed = run ? mi !== baseMi : min !== baseMin;
@@ -227,9 +230,14 @@ const FAMILY_DATES = Object.fromEntries(Object.entries(FAMILY).map(([k, re]) =>
 export function familySrc(fam, iso) {
   const ds = FAMILY_DATES[fam] || [];
   const before = ds.filter((d) => d <= iso);
-  return before.length ? before[before.length - 1] : ds[0] || null;
+  if (ds.length) return before.length ? before[before.length - 1] : ds[0];
+  // Not on the calendar (hills since 7 Nov): the library session for this point of the block.
+  const lib = Object.keys(LIBRARY).filter((k) => FAMILY[fam].test(LIBRARY[k].g || ""))
+    .sort((x, y) => (LIBRARY[x].from < LIBRARY[y].from ? -1 : 1));
+  const ok = lib.filter((k) => LIBRARY[k].from <= iso);
+  return ok.length ? ok[ok.length - 1] : lib[0] || null;
 }
-export const familyOf = (src) => Object.keys(FAMILY).find((k) => FAMILY[k].test(PLAN[src]?.g || "")) || null;
+export const familyOf = (src) => Object.keys(FAMILY).find((k) => FAMILY[k].test(planEntry(src)?.g || "")) || null;
 
 /* What a day can be set to: its plan workout, Z2 easy, threshold, intervals,
  * hills, alt cardio or rest. Options that would repeat the plan are left out.

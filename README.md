@@ -30,6 +30,23 @@ week earlier, but nothing before 9 Nov is tracked.
   Forgot to tap? You have until noon the next day, and the Garmin sync also marks a
   day done when it finds the activity. After that an undone day is red for good.
 
+## Coaching changes (7 Nov 2026)
+
+Mary approved these after a coach-style review against her last 13 weeks of Garmin
+running (about 13 mpw, VO2max 54):
+
+1. A threshold or interval session every week on Wednesday (race week keeps its
+   marathon-pace tune-up). Threshold time builds from 16 to 30 minutes.
+2. Strides on every Thursday Z2, up a gentle hill through December. The two hills
+   sessions left the calendar but stay on the Hills button.
+3. Monday marathon-pace runs became Z2 at the same distance, so no week has three
+   hard days.
+4. Marathon pace lives in long runs: 18 Dec, 8 Jan, 29 Jan, 5 Feb, 19 Feb and 12 Mar.
+
+The 25 mi long run on 26 Feb stays (Mary's call). Re-check the goal after the 27 Jan
+test: if the last 4 MP miles of the 22-miler come in at 8:50 or faster at HR 155 or
+under, aim for 3:50.
+
 ## The numbers
 
 Workouts done on the day, missed days, miles since 9 Nov, longest single run, long
@@ -50,15 +67,14 @@ Mary at 0500 and 2130 Eastern, Jon at 0400 and 2000 Mountain ([docs/jon_setup.md
 It runs [tools/garmin_sync.js](tools/garmin_sync.js) on a signed-in Garmin Connect tab, which
 
 - reads the last 10 days of activities into the app, and
-- makes that person's Garmin calendar match the weeks they locked, so the right
-  structured `SHAM //` workout is on the watch. The first time it sees a locked week it
-  records what the calendar already had (the "base"), then moves those same workouts.
-  That keeps each person's own versions, like Mary's 45 min bikes or Jon's HR-scaled runs.
-  Rest, walk and alt cardio days are blank on the watch. A day with changed miles or
-  minutes, or an easy run, gets an exact workout (built in Garmin if it doesn't exist,
-  for example `SHAM // LONG 12.5 MI`; on hard days the easy cool-down takes the change).
-  Old `STROLLER Z2` workouts are swapped for plain `Z2` ones. Only `SHAM //` workouts
-  from today forward are ever touched.
+- makes that person's Garmin calendar match the app's week (this week and next), so
+  the right structured `SHAM //` workout is on the watch. Workouts are scheduled by
+  name, so each account uses its own version (Jon's carry his heart rate targets), and
+  a name the account doesn't have yet is built from the plan's steps. Changed miles or
+  minutes get an exact workout (for example `SHAM // LONG 12.5 MI`; on hard days the
+  easy cool-down takes the change). Rest, walk and alt cardio days are blank on the
+  watch. Only `SHAM //` workouts from today forward are ever touched. The plan file is
+  the single source, so a plan change reaches both watches as the weeks come up.
 
 Mary's run also reads Jon's activities as a backup. Garmin only lets each person
 change their own calendar, so Jon's watch needs his own task.
