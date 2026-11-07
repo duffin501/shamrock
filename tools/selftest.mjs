@@ -6,7 +6,7 @@ import {
   amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS,
-  repsOf, setReps, repStep
+  repsOf, setReps, repStep, personalWeek
 } from "../core.js";
 
 let n = 0;
@@ -282,6 +282,48 @@ t("own reps on threshold and interval days", () => {
   const b = setReps(setKind(defaultWeek(W2), "2026-11-16", W2, "int"), "2026-11-16", { n: 6, s: 180 });
   assert.equal(resolve(b["2026-11-16"], "2026-11-16").title, "Intervals 6 x 3 min");
   assert.equal(countOf(b), countOf(defaultWeek(W2)));
+});
+t("a plan of your own from the quiz", () => {
+  const jon = { days: 4, runs: 2, hard: false, longDay: 5, peak: 20, altMin: 45, start: 13.2 };
+  const d = personalWeek(jon, W1);
+  assert.equal(countOf(d), 4);
+  const L = longSlot(d);
+  assert.equal(L, "2026-11-14", "long run on his Saturday");
+  assert.deepEqual(d[L], { k: "plan", src: "2026-11-13" }, "the plan's own long run, moved to his day");
+  assert.equal(Object.values(d).filter((a) => a.k === "alt" && a.min === 45).length, 2);
+  assert.equal(Object.values(d).filter((a) => a.k === "plan").length, 2);
+  assert.equal(hardNextToLong(d).length, 0);
+  // Defaults and governing follow it; the shared plan stays for everyone else
+  assert.deepEqual(defaultWeek(W1, jon), d);
+  assert.deepEqual(governing({}, W1, jon).days, d);
+  assert.deepEqual(defaultWeek(W1, { mode: "shared" }), defaultWeek(W1));
+  assert.equal(planCount(W1, jon), 4);
+  // Long runs capped at his peak: the 22 and the 25 become 20
+  const lr = (w) => { const x = personalWeek(jon, w), l = longSlot(x); return resolve(x[l], l).mi; };
+  assert.equal(lr("2027-02-01"), 20); assert.equal(lr("2027-02-22"), 20); assert.equal(lr("2027-01-18"), 20);
+  assert.equal(resolve(personalWeek(jon, "2027-02-01")[longSlot(personalWeek(jon, "2027-02-01"))], "2027-02-06").title,
+    "Long 20 mi, last 4 marathon HR");
+  // A slow start ramps 1.5 mi a week from an 8 mi floor
+  const newbie = { ...jon, start: 5, runs: 1, days: 3 };
+  assert.equal(resolve(personalWeek(newbie, W1)[longSlot(personalWeek(newbie, W1))], "x").mi, 8);
+  assert.equal(resolve(personalWeek(newbie, W2)[longSlot(personalWeek(newbie, W2))], "x").mi, 9.5);
+  // A hard day goes as far from the long run as it can
+  const hard = personalWeek({ ...jon, runs: 3, hard: true, days: 5, longDay: 6 }, W2);
+  const hd = Object.keys(hard).find((x) => hard[x].k === "plan" && PLAN[hard[x].src].k === "quality");
+  assert.equal(hd, "2026-11-18");
+  // Race week: the race stays on Sunday
+  const rw = personalWeek(jon, LAST_WEEK);
+  assert.deepEqual(rw["2027-03-21"], { k: "plan", src: "2027-03-21" });
+  assert.equal(countOf(rw), 4);
+  // Every answer combination gives exactly the days asked for
+  for (const days of [3, 4, 5, 6, 7]) for (const runs of [1, 2, 3, 4, 5]) for (const longDay of [0, 3, 6]) {
+    if (runs > days) continue;
+    for (const w of [W1, "2027-02-22", LAST_WEEK]) assert.equal(countOf(personalWeek({ ...jon, days, runs, hard: true, longDay }, w)), days);
+  }
+  // The season counts from his plan
+  const s = season({ tz: "America/Denver", plan: jon }, { now: Date.parse("2026-11-12T20:00:00Z") });
+  assert.equal(s.assign["2026-11-14"].src, "2026-11-13");
+  assert.equal(s.status["2026-11-11"], "rest", "Wednesday is a rest day in his week");
 });
 t("marathon projection from the latest long run", () => {
   assert.equal(hms(14280), "3:58:00");

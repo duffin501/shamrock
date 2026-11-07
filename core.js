@@ -136,13 +136,83 @@ export function resolve(a, iso) {
 export const isRest = (a) => !a || a.k === "rest";
 export const countOf = (days) => Object.values(days || {}).filter((a) => !isRest(a)).length;
 
-/* The plan's week, untouched. */
-export function defaultWeek(w) {
+/* A week before anyone touches it: the person's own plan if they built one
+ * (Jon's quiz), else the shared plan's week. */
+export function defaultWeek(w, mine = null) {
+  if (ownPlan(mine)) return personalWeek(mine, w);
   const days = {};
   for (const d of weekDates(w)) days[d] = PLAN[d] ? { k: "plan", src: d } : { k: "rest" };
   return days;
 }
-export const planCount = (w) => countOf(defaultWeek(w));
+export const planCount = (w, mine = null) => countOf(defaultWeek(w, mine));
+
+/* ---------- a plan of your own (Jon's quiz, Mary 7 Nov) ----------
+ * The quiz answers live at people/{id}/plan: days a week, how many are runs,
+ * a hard day or not, the long run's weekday, the peak long run, alt cardio
+ * minutes, goal time, and the longest run going in (start). mode "shared"
+ * means "use Mary's plan". Each week is built from the shared plan's own
+ * sessions for that week, so the watch workouts are the same ones: its long
+ * run (capped at the peak, and at start + 1.5 mi a week), its hard day, its
+ * Z2 runs (Thursday's first, then Monday's, then Sunday's), and alt cardio
+ * for the rest. Days are spread out: the hard day as far from the long run as
+ * the week allows, nothing on the day before the long run unless it has to be.
+ * Race week keeps the race on Sunday. */
+export const ownPlan = (m) => !!(m && m.mode !== "shared" && m.days && m.runs);
+export const QUIZ_DEFAULT = { days: 4, runs: 2, hard: false, longDay: 5, peak: 20, altMin: 45, goal: 16200, start: 10 };
+const RUN_PREF = [3, 0, 6, 1, 2, 4, 5];   // which Z2 sessions a shorter week keeps first: Thu, Mon, Sun...
+const circ = (a, b) => { const x = Math.abs(a - b); return Math.min(x, 7 - x); };
+
+export function longCap(mine, w) {
+  const idx = Math.max(0, weekNo(w) - 1);
+  const ramp = Math.max(8, +mine.start || 8) + 1.5 * idx;
+  return Math.max(8, Math.floor(Math.min(+mine.peak || 20, ramp) * 2) / 2);
+}
+
+export function personalWeek(mine, w) {
+  const dates = weekDates(w), days = {};
+  for (const d of dates) days[d] = { k: "rest" };
+  const ds = dates.filter((d) => PLAN[d]);
+  const race = ds.find((d) => PLAN[d].k === "race");
+  const longSrc = race || ds.find((d) => PLAN[d].k === "long");
+  const hardSrc = ds.find((d) => PLAN[d].k === "quality");
+  const easySrcs = ds.filter((d) => PLAN[d].k === "easy").sort((x, y) => RUN_PREF.indexOf(dowIdx(x)) - RUN_PREF.indexOf(dowIdx(y)));
+  const total = Math.max(1, Math.min(7, +mine.days || 1));
+  const runs = Math.max(1, Math.min(total, 5, +mine.runs || 1));
+  const L = race ? 6 : Math.max(0, Math.min(6, +mine.longDay || 0));
+  const used = [L];
+  const free = () => [0, 1, 2, 3, 4, 5, 6].filter((i) => !used.includes(i));
+  // The free day farthest from what's placed; the day before the long run last.
+  const pick = (against) => {
+    let best = null, bs = -Infinity;
+    for (const i of free()) {
+      const sc = Math.min(...against.map((j) => circ(i, j))) * 10 - (i === (L + 6) % 7 ? 25 : 0);
+      if (sc > bs) { best = i; bs = sc; }
+    }
+    return best;
+  };
+  if (longSrc) {
+    const lr = { k: "plan", src: longSrc };
+    if (!race) { const cap = longCap(mine, w); if (cap < (PLAN[longSrc].mi || 0)) lr.mi = cap; }
+    days[dates[L]] = lr;
+  }
+  const runDays = [L];
+  let left = runs - 1;
+  if (mine.hard && left > 0 && hardSrc) {
+    const i = pick(runDays); used.push(i); runDays.push(i); left--;
+    days[dates[i]] = { k: "plan", src: hardSrc };
+  }
+  for (let n = 0; n < left; n++) {
+    const i = pick(runDays); if (i == null) break;
+    used.push(i); runDays.push(i);
+    days[dates[i]] = easySrcs[n] ? { k: "plan", src: easySrcs[n] } : { k: "easy" };
+  }
+  for (let n = 0; n < total - runs; n++) {
+    const i = pick(used); if (i == null) break;
+    used.push(i);
+    days[dates[i]] = { k: "alt", min: +mine.altMin || 45 };
+  }
+  return days;
+}
 
 export function longSlot(days) {
   return Object.keys(days).sort().find((d) => days[d]?.k === "plan" && ["long", "race"].includes(PLAN[days[d].src]?.k)) || null;
@@ -485,13 +555,13 @@ export function lockedDays(rec) {
 
 /* The week that governs a date: the locked week; else the saved edits (they
  * lock themselves at midnight Sunday); else the plan's week. */
-export function governing(weeks, w) {
+export function governing(weeks, w, mine = null) {
   const rec = weeks?.[w];
   const locked = lockedDays(rec);
   if (locked) return { days: locked, locked: true, auto: !!rec.auto, rec };
   if (!inPlan(w)) return null;
   if (rec?.days) return { days: rec.days, locked: false, auto: false, draft: true, rec };
-  return { days: defaultWeek(w), locked: false, auto: true, rec: null };
+  return { days: defaultWeek(w, mine), locked: false, auto: true, rec: null };
 }
 
 /* Whether a week that has already begun should be written down as the
@@ -548,7 +618,7 @@ export function season(p, { now = Date.now() } = {}) {
 
   const last = today < RACE_DAY ? today : RACE_DAY;
   for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
-    const g = governing(weeks, w);
+    const g = governing(weeks, w, p.plan);
     for (const d of weekDates(w)) {
       const a = g ? g.days[d] : null;
       assign[d] = a;

@@ -19,7 +19,7 @@ import {
   dayNum, shortDate, longDay, weekRange, fmtNum,
   resolve, scaleNote, isRest, countOf, defaultWeek, planCount, longSlot,
   stepDown, stepUp, kindOptions, setKind, familyOf, FAMILY_LABEL, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
-  repsOf, setReps, repStep, REP_PRESETS, durTxt,
+  repsOf, setReps, repStep, REP_PRESETS, durTxt, ownPlan, personalWeek, QUIZ_DEFAULT,
   lockedDays, governing, needsAutoLock,
   canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
   hms, paceStr, longRunProjection, easyMiles
@@ -51,7 +51,9 @@ const S = {
   sheet: null, err: null, online: true, prompted: false,
   upload: null,           // "Resizing" / "Saving" while today's photo goes up
   lightbox: null,         // { id, iso, src, cap } for a photo shown full size
-  picBack: 0              // Us tab photo log: how many weeks back
+  picBack: 0,             // Us tab photo log: how many weeks back
+  quiz: null,             // { step, a } while building your own plan
+  quizSeen: false
 };
 let SEASON = {};
 let drag = null;   // a planner day being dragged (see "drag and drop" below)
@@ -73,6 +75,8 @@ function person(id) {
   };
 }
 const nameOf = (id) => person(id).name || id;
+/* Someone's untouched week: their own plan if they built one, else the shared plan. */
+const defWeek = (id, w) => defaultWeek(w, person(id).plan);
 /* Fewer workout days than this (alt cardio counts) is "below plan":
  * 4 for Mary, 3 for Jon (Mary, 7 Nov). */
 const minDays = (id) => person(id).minDays || 4;
@@ -140,6 +144,10 @@ async function settle() {
     S.me = found; S.phase = "ready";
     if (!S.who) S.who = found;
     compute();
+    if (!S.quiz && !S.quizSeen && PEOPLE.find((p) => p.id === found)?.quiz && !person(found).plan) {
+      S.quizSeen = true;
+      S.quiz = { step: 0, a: quizStart() };
+    }
     watchTodayPics();
     autoLock();
     sundayPrompt();
@@ -304,7 +312,7 @@ function autoLock() {
   for (let w = FIRST_WEEK; w <= weekOf(s.today) && inPlan(w); w = addDays(w, 7)) {
     if (!needsAutoLock(p.weeks, w, s.today) || autoLocked.has(w)) continue;
     autoLocked.add(w);
-    const rec = p.weeks[w] || {}, days = rec.days || defaultWeek(w);
+    const rec = p.weeks[w] || {}, days = rec.days || defWeek(S.me, w);
     ups[`weeks/${S.me}/${w}`] = { ...rec, days, lockedAt: now(), auto: true, count: countOf(days) };
   }
   if (Object.keys(ups).length) update(ref(db, ROOT), ups).catch(fail);
@@ -320,7 +328,7 @@ async function saveDraft(w) {
   if (!days || !canEdit(clock(p.tz, now()), w)) return;
   const path = ref(db, `${ROOT}/weeks/${S.me}/${w}`);
   try {
-    if (JSON.stringify(days) === JSON.stringify(defaultWeek(w))) await remove(path);
+    if (JSON.stringify(days) === JSON.stringify(defWeek(S.me, w))) await remove(path);
     else await set(path, { days, count: countOf(days), saved: now(), closesAt: midnightIn(w, p.tz) });
   } catch (e) { fail(e); }
 }
@@ -366,7 +374,7 @@ window.shamrockSyncInput = () => {
   const cur = weekOf(s.today), weeks = [];
   for (const w of [cur, addDays(cur, 7)]) {
     if (!inPlan(w)) continue;
-    const g = governing(p.weeks, w);
+    const g = governing(p.weeks, w, p.plan);
     if (!g) continue;
     const days = g.days;
     const out = {};
@@ -440,7 +448,7 @@ window.shamrockState = () => JSON.stringify(Object.fromEntries(ids().map((id) =>
 function draft(w) {
   if (!S.drafts[w]) {
     const rec = person(S.me).weeks[w];
-    S.drafts[w] = rec?.days && !rec.lockedAt ? { ...rec.days } : defaultWeek(w);
+    S.drafts[w] = rec?.days && !rec.lockedAt ? { ...rec.days } : defWeek(S.me, w);
   }
   return S.drafts[w];
 }
@@ -531,18 +539,18 @@ function screenApp() {
   const days = Math.max(0, diffDays(s.today, RACE_DAY));
   const w = weekOf(s.today);
   const wk = inPlan(w) ? `Wk ${weekNo(w)}` : s.today < SEASON_START ? "Starts 9 Nov" : "Done";
-  const body = S.tab === "week" ? tabWeek() : S.tab === "us" ? tabUs() : tabToday();
+  const body = S.quiz ? quizScreen() : S.tab === "week" ? tabWeek() : S.tab === "us" ? tabUs() : tabToday();
   return `<div id="app">
     <header class="top">
       <div class="brand">${MARK}<span class="disp">Shamrock</span><span class="yr disp">'27</span></div>
       <div class="count mono">${s.today < SEASON_START ? "Week 1 starts 9 Nov" : `${esc(wk)}<span class="sep">/</span>${s.today <= RACE_DAY ? `${days} days` : "Finished"}`}</div>
       <span class="dot-online" title="Connection"></span>
     </header>
-    ${lockBanner()}
+    ${S.quiz ? "" : lockBanner()}
     <main class="view">${body}</main>
-    <nav class="nav">
+    ${S.quiz ? "" : `<nav class="nav">
       ${navBtn("today", "Today")}${navBtn("week", "Week")}${navBtn("us", "Us")}
-    </nav>
+    </nav>`}
     ${S.sheet ? sheet() : ""}
     ${S.lightbox ? `<div class="lb" data-act="lb-close" role="dialog" aria-label="Photo">
       ${S.lightbox.src ? `<img src="${esc(S.lightbox.src)}" alt="Daily photo">` : ""}<div class="cap">${esc(S.lightbox.cap)}</div></div>` : ""}
@@ -562,6 +570,155 @@ function lockBanner() {
   const urgent = s.hour >= 17;
   const msg = `Week ${weekNo(next)} locks at midnight tonight`;
   return `<button class="banner ${urgent ? "urgent" : ""}" data-act="go-plan"><span>${esc(msg)}</span><span class="arrow">Review</span></button>`;
+}
+
+/* ---------- your own plan: the quiz ----------
+ * Jon builds his plan from a few taps the first time he opens the app (Mary,
+ * 7 Nov). Every question says what Mary is doing next to it. The answers go
+ * to people/{id}/plan, and every week he hasn't changed follows that plan
+ * (core.js personalWeek). It can be retaken from the Us tab. */
+const FULLDOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const hm = (sec) => { const m = Math.round(sec / 60); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`; };
+const GOALS = [13500, 14400, 15300, 16200, 17100, 18000, 18900];
+
+function quizStart() {
+  const p = person(S.me), cur = ownPlan(p.plan) ? p.plan : {};
+  const since = addDays(SEASON[S.me].today, -60);
+  const lrs = Object.entries(p.garmin?.days || {}).filter(([d]) => d >= since).map(([, v]) => +v.lr || 0);
+  const longest = lrs.length ? Math.max(...lrs) : 0;
+  return { ...QUIZ_DEFAULT, ...cur, start: Math.round((longest || +cur.start || QUIZ_DEFAULT.start) * 10) / 10, fromGarmin: !!longest };
+}
+
+const quizSteps = (a) => ["days", "runs", a.runs >= 2 ? "hard" : null, "longDay", "peak",
+  a.days > a.runs ? "altMin" : null, "goal", "review"].filter(Boolean);
+
+/* What the other person is doing, for the line under each question. */
+function refNumbers(id) {
+  const p = person(id), s = SEASON[id];
+  const next = addDays(weekOf(s.today), 7), w = inPlan(next) ? next : FIRST_WEEK;
+  const days = governing(p.weeks, w, p.plan).days;
+  let runs = 0, hard = 0, other = 0, hardDay = null;
+  const bikes = [];
+  for (const d of weekDates(w)) {
+    const r = resolve(days[d], d);
+    if (r.rest) continue;
+    if (r.run) { runs++; if (r.kind === "quality") { hard++; if (hardDay == null) hardDay = dowIdx(d); } }
+    else { other++; if (r.kind === "bike") bikes.push(r.min); }
+  }
+  const L = longSlot(days), own = ownPlan(p.plan);
+  const longs = Object.keys(PLAN).filter((d) => PLAN[d].k === "long");
+  const peak = own ? +p.plan.peak : Math.max(...longs.map((d) => PLAN[d].mi || 0));
+  return { name: nameOf(id), w, count: countOf(days), runs, hard, hardDay, other, bikes,
+    longDay: L ? dowIdx(L) : null, peak, peakDay: own ? null : longs.find((d) => PLAN[d].mi === peak),
+    goal: own ? +p.plan.goal : +p.goal || 0, proj: longRunProjection(p.garmin?.days, s.today) };
+}
+
+function planSummary(id) {
+  const p = person(id), m = p.plan;
+  const goal = ownPlan(m) ? +m.goal : +p.goal || 0;
+  const g = goal ? ` Goal ${hm(goal)} (${paceStr(goal / 26.2)}/mi).` : "";
+  if (!ownPlan(m)) return `The shared 19-week plan, the same as the PDF.${g}`;
+  const alt = m.days - m.runs;
+  return `${m.days} days a week: ${m.runs} run${m.runs === 1 ? "" : "s"}${m.hard && m.runs >= 2 ? " (one hard)" : ""}${alt ? ` and ${alt} alt cardio, ${m.altMin} min` : ""}. Long run on ${FULLDOW[m.longDay]}s, building to ${m.peak} mi.${g}`;
+}
+
+function quizScreen() {
+  const q = S.quiz, a = q.a, steps = quizSteps(a);
+  q.step = Math.min(q.step, steps.length - 1);
+  const key = steps[q.step], ref = refNumbers(other()), M = esc(ref.name);
+  const opt = (v, label, sub = "") => `<button class="qopt ${a[key] === v ? "on" : ""}" data-act="q-pick" data-v="${esc(JSON.stringify(v))}">${label}${sub ? `<small>${sub}</small>` : ""}</button>`;
+  const retake = !!person(S.me).plan;
+  const nav = `<p class="qnav">${q.step > 0 ? `<button class="link" data-act="q-back">Back</button>` : ""}
+    ${retake ? `<button class="link" data-act="q-close">Cancel</button>` : q.step === 0 ? `<button class="link" data-act="q-shared">Just use ${M}'s plan</button>` : ""}</p>`;
+  const head = (title, sub) => `<p class="eyebrow">Your plan · ${q.step + 1} of ${steps.length}</p><h2 class="disp">${title}</h2>${sub ? `<p class="note">${sub}</p>` : ""}`;
+  const refLine = (txt) => `<div class="qref p-${other()}"><b>${M}</b> ${txt}</div>`;
+  let body = "";
+
+  if (key === "days") {
+    body = head("How many days a week do you want to work out?", "Runs and alt cardio together. You can still change any single week.")
+      + `<div class="qopts five">${[3, 4, 5, 6, 7].map((n) => opt(n, n)).join("")}</div>`
+      + refLine(`has ${ref.count} next week: ${ref.runs} runs and ${ref.other} bike or walk day${ref.other === 1 ? "" : "s"}.`);
+  } else if (key === "runs") {
+    const max = Math.min(5, a.days);
+    body = head("How many of those are runs?", "One is always the long run. The other days are alt cardio.")
+      + `<div class="qopts five">${Array.from({ length: max }, (_, i) => i + 1).map((n) => opt(n, n, n === 1 ? "long run only" : "")).join("")}</div>`
+      + refLine(`runs ${ref.runs} times a week: the long run, ${ref.hard ? "one hard day and " : ""}${Math.max(0, ref.runs - 1 - ref.hard)} easy Z2.`);
+  } else if (key === "hard") {
+    body = head("Make one of your runs a hard one?", "Threshold or intervals from the plan for that week. It goes as far from your long run as the week allows.")
+      + `<div class="qopts two">${opt(true, "Yes", "threshold or intervals")}${opt(false, "No", "keep them easy")}</div>`
+      + refLine(ref.hard ? `does one every ${FULLDOW[ref.hardDay]}: threshold most weeks, intervals some.` : "has none next week.");
+  } else if (key === "longDay") {
+    body = head("Which day is your long run?", "It's the one workout that can't come off a week.")
+      + `<div class="qopts seven">${DOW.map((x, i) => opt(i, x)).join("")}</div>`
+      + refLine(ref.longDay != null ? `runs hers on ${FULLDOW[ref.longDay]}s.` : "");
+  } else if (key === "peak") {
+    body = head("How far should your longest training run be?",
+      `Your long run follows the plan's build, easier weeks included. It starts from ${fmtNum(a.start)} mi${a.fromGarmin ? " (your longest on Garmin lately)" : ""} and adds at most 1.5 mi a week.`)
+      + `<div class="qopts five">${[16, 18, 20, 22, 25].map((n) => opt(n, n, "mi")).join("")}</div>`
+      + refLine(`peaks at ${ref.peak} mi${ref.peakDay ? ` on ${shortDate(ref.peakDay)}` : ""}${ref.proj ? `. Her latest long run was ${fmtNum(Math.round(ref.proj.mi * 10) / 10)} mi` : ""}. Most plans top out at 20 to 22.`);
+  } else if (key === "altMin") {
+    const b = ref.bikes, bt = b.length ? (Math.min(...b) === Math.max(...b) ? `${b[0]}` : `${Math.min(...b)} to ${Math.max(...b)}`) : "";
+    body = head("How long is an alt cardio session?", "Bike, row, elliptical, swim or a brisk walk, at an easy effort.")
+      + `<div class="qopts five">${[30, 45, 60, 75, 90].map((n) => opt(n, n, "min")).join("")}</div>`
+      + refLine(bt ? `bikes ${bt} min, and walks 45 with the stroller.` : "walks and bikes on her off days.");
+  } else if (key === "goal") {
+    const mine = longRunProjection(person(S.me).garmin?.days, SEASON[S.me].today);
+    body = head("What's your goal marathon time?", mine ? `Your ${fmtNum(Math.round(mine.mi * 10) / 10)} mi on ${shortDate(mine.d)} projects about ${hm(mine.sec)}.` : "")
+      + `<div class="qopts four">${GOALS.map((g) => opt(g, hm(g), `${paceStr(g / 26.2)}/mi`)).join("")}</div>`
+      + refLine(ref.goal ? `is going for ${hm(ref.goal)}, about ${paceStr(ref.goal / 26.2)} a mile.` : "");
+  } else {
+    const nw = addDays(weekOf(SEASON[S.me].today), 7), w1 = inPlan(nw) ? nw : FIRST_WEEK;
+    const days = personalWeek(a, w1);
+    const longs = [];
+    for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
+      const d = personalWeek(a, w), L = longSlot(d), r = L ? resolve(d[L], L) : null;
+      longs.push(r ? (r.race ? "race" : fmtNum(r.mi)) : "-");
+    }
+    const yes = (x) => (x ? "yes" : "no");
+    const cmp = [
+      ["Days a week", a.days, ref.count],
+      ["Runs", a.runs, ref.runs],
+      ["Hard day", yes(a.hard && a.runs >= 2), ref.hard ? FULLDOW[ref.hardDay].slice(0, 3) : "no"],
+      ["Long run", DOW[a.longDay], ref.longDay != null ? DOW[ref.longDay] : "-"],
+      ["Longest run", `${a.peak} mi`, `${ref.peak} mi`],
+      ["Goal", hm(a.goal), ref.goal ? hm(ref.goal) : "-"]
+    ];
+    const drafted = person(S.me).weeks[w1]?.days && !person(S.me).weeks[w1]?.lockedAt;
+    body = `<p class="eyebrow">Your plan · ${q.step + 1} of ${steps.length}</p><h2 class="disp">Here's your plan</h2>
+      <p class="note">Week ${weekNo(w1)} (${esc(weekRange(w1))}) would look like this. Every week you don't change follows the same pattern, on your watch too.</p>
+      <ol class="qweek">${weekDates(w1).map((d, i) => { const r = resolve(days[d], d); return `<li class="${r.rest ? "rest" : ""}"><span class="mono">${DOW[i]}</span><span>${esc(r.title)}</span><span class="mono dim">${r.rest ? "" : esc(meta(r))}</span></li>`; }).join("")}</ol>
+      <p class="small"><b>Long runs, week by week:</b> ${longs.join(", ")}</p>
+      <table class="qcmp"><tr><th></th><th>You</th><th class="p-${other()}">${M}</th></tr>${cmp.map(([k, x, y]) => `<tr><td>${k}</td><td class="mono">${esc(String(x))}</td><td class="mono">${esc(String(y))}</td></tr>`).join("")}</table>
+      ${drafted ? `<p class="note small">You already changed week ${weekNo(w1)}, so it stays the way you set it. "Reset to plan" in the planner switches it to this.</p>` : ""}
+      <button class="primary big" data-act="q-save">Use this plan</button>
+      <p class="qnav"><button class="link" data-act="q-back">Back</button><button class="link" data-act="q-restart">Start over</button>${retake ? `<button class="link" data-act="q-close">Cancel</button>` : ""}</p>`;
+    return `<section class="quiz">${body}</section>`;
+  }
+  return `<section class="quiz">${body}${nav}</section>`;
+}
+
+function quizPick(v) {
+  const q = S.quiz, a = q.a, key = quizSteps(a)[q.step];
+  a[key] = v;
+  if (key === "days" && a.runs > a.days) a.runs = a.days;
+  if (key === "runs" && a.runs < 2) a.hard = false;
+  q.step++;
+  window.scrollTo(0, 0);
+  render();
+}
+
+async function saveQuiz(shared = false) {
+  const a = S.quiz?.a || {};
+  const rec = shared ? { mode: "shared", at: now() } : {
+    days: a.days, runs: Math.min(a.runs, a.days), hard: !!a.hard && a.runs >= 2, longDay: a.longDay,
+    peak: a.peak, altMin: a.altMin, goal: a.goal, start: a.start, at: now()
+  };
+  try {
+    await set(ref(db, `${ROOT}/people/${S.me}/plan`), rec);
+    S.quiz = null; S.tab = "week"; S.who = S.me; S.seg = "next"; S.open = null;
+    window.scrollTo(0, 0);
+    render();
+  } catch (e) { fail(e); }
 }
 
 /* ---------- Today ---------- */
@@ -723,7 +880,7 @@ function tabWeek() {
     return head + `<section class="block"><p class="note">${w > LAST_WEEK ? "That's past race day." : "Week 1 starts 9 November. This week isn't tracked."}</p></section>` + cal;
   }
   if (mine && plannable().includes(w)) return head + planner(w) + cal;
-  return head + weekLocked(id, w, governing(person(id).weeks, w)) + cal;
+  return head + weekLocked(id, w, governing(person(id).weeks, w, person(id).plan)) + cal;
 }
 
 /* Calendar cells are about 40 px wide on a phone: short words that can wrap
@@ -756,7 +913,7 @@ function seasonCalendar(id) {
   const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const rows = [];
   for (let w = FIRST_WEEK; w <= LAST_WEEK; w = addDays(w, 7)) {
-    const days = mine && plannable().includes(w) ? draft(w) : governing(p.weeks, w).days;
+    const days = mine && plannable().includes(w) ? draft(w) : governing(p.weeks, w, p.plan).days;
     let planMi = 0, didMi = 0;
     const cells = weekDates(w).map((d) => {
       const a = days[d], r = resolve(a, d), st = d < SEASON_START ? "before" : s.status[d];
@@ -781,6 +938,7 @@ function seasonCalendar(id) {
   }
   return `<section class="block cal">
     <div class="block-head"><p class="eyebrow">Season calendar · ${esc(nameOf(id))}</p><p class="eyebrow">to race day</p></div>
+    <p class="plan-sum p-${id}"><b>${esc(nameOf(id))}'s plan.</b> ${esc(planSummary(id))}${mine && PEOPLE.find((x) => x.id === id)?.quiz ? ` <button class="link" data-act="q-open">Change</button>` : ""}</p>
     <div class="chead">${DOW.map((x) => `<span>${x[0]}</span>`).join("")}<span>mi</span></div>
     ${rows.join("")}
     <p class="note small">Each day shows the plan, then what was done: Garmin miles, minutes for non-runs, or "done" for a tap. The right column is planned miles, then actual. Tap a day for the details.</p>
@@ -846,7 +1004,7 @@ function weekLocked(id, w, g) {
 }
 
 function planner(w) {
-  const days = draft(w), count = countOf(days), pc = planCount(w);
+  const days = draft(w), count = countOf(days), pc = planCount(w, person(S.me).plan);
   const long = longSlot(days);
   let miles = 0;
   for (const d of weekDates(w)) { const r = resolve(days[d], d); if (r.run) miles += r.mi || 0; }
@@ -874,7 +1032,7 @@ function planner(w) {
 
   const otherId = other(), op = person(otherId), orec = op.weeks[w];
   const partner = orec?.days ? `${esc(op.name)} has ${countOf(orec.days)} workouts set.` : `${esc(op.name)} is on the plan's week.`;
-  const changed = JSON.stringify(days) !== JSON.stringify(defaultWeek(w));
+  const changed = JSON.stringify(days) !== JSON.stringify(defWeek(S.me, w));
   const rec = person(S.me).weeks[w];
   const status = saveTimer ? "Saving..." : !changed ? "This is the plan's week." : rec?.saved ? `Saved ${esc(timeIn(person(S.me).tz, rec.saved))}.` : "Saved.";
 
@@ -1000,6 +1158,7 @@ function tabUs() {
     </section>
     <section class="block settings">
       <p class="eyebrow">Your settings</p>
+      ${PEOPLE.find((x) => x.id === S.me)?.quiz || me.plan ? `<div class="set-row"><span>Your plan<small>${esc(planSummary(S.me))}</small></span><button class="ghost" data-act="q-open">${ownPlan(me.plan) ? "Change" : "Build mine"}</button></div>` : ""}
       <div class="set-row"><span>Threshold HR <b class="mono">${me.lt}</b><small>Run HR bands scale from this. The plan assumes 167.</small></span><button class="ghost" data-act="sheet" data-sheet="lt">Edit</button></div>
       <div class="set-row"><span>Signed in as <b>${esc(S.user?.email || "")}</b></span><button class="ghost" data-act="signout">Sign out</button></div>
     </section>`;
@@ -1028,7 +1187,7 @@ function sheet() {
   const x = S.sheet;
   let inner = "";
   if (x.kind === "swap") {
-    const id = S.me, days = governing(person(id).weeks, x.w).days;
+    const id = S.me, days = governing(person(id).weeks, x.w, person(id).plan).days;
     const ra = resolve(days[x.a], x.a), rb = resolve(days[x.b], x.b);
     inner = `<h3 class="disp">Use your swap?</h3>
       <p>${DOW[dowIdx(x.a)]} becomes <b>${esc(rb.title)}</b>. ${DOW[dowIdx(x.b)]} becomes <b>${esc(ra.title)}</b>.</p>
@@ -1046,7 +1205,7 @@ function sheet() {
       <button class="ghost wide" data-act="near-undo">Undo</button>`;
   } else if (x.kind === "day") {
     const p = person(x.id), s = SEASON[x.id], d = x.d;
-    const days = x.id === S.me && plannable().includes(weekOf(d)) ? draft(weekOf(d)) : governing(p.weeks, weekOf(d)).days;
+    const days = x.id === S.me && plannable().includes(weekOf(d)) ? draft(weekOf(d)) : governing(p.weeks, weekOf(d), p.plan).days;
     const r = resolve(days[d], d), gm = p.garmin?.days?.[d], st = d < SEASON_START ? "before" : s.status[d];
     const facts = [];
     if (gm && ((gm.r || 0) > 0 || (gm.t || 0) > 0 || (gm.n || 0) > 0)) {
@@ -1109,6 +1268,13 @@ root.addEventListener("click", (e) => {
     }
     case "amt-reset": { const spec = amountSpec(draft(w)[d], d); return spec ? change(w, setAmount(draft(w), d, spec.base)) : undefined; }
     case "calday": S.sheet = { kind: "day", id: el.dataset.id, d }; return render();
+    case "q-pick": return quizPick(JSON.parse(el.dataset.v));
+    case "q-back": S.quiz.step = Math.max(0, S.quiz.step - 1); window.scrollTo(0, 0); return render();
+    case "q-restart": S.quiz.step = 0; window.scrollTo(0, 0); return render();
+    case "q-close": S.quiz = null; return render();
+    case "q-open": S.quiz = { step: 0, a: quizStart() }; window.scrollTo(0, 0); return render();
+    case "q-save": return saveQuiz(false);
+    case "q-shared": return saveQuiz(true);
     case "shoot": return shooter.click();
     case "unshoot": return removePhoto();
     case "zoom": return zoomPhoto(el.dataset.id, d);
@@ -1123,7 +1289,7 @@ root.addEventListener("click", (e) => {
     case "rep-reset": { const c = repsOf(draft(w)[d]); return c ? change(w, setReps(draft(w), d, c.plan)) : undefined; }
     case "near-keep": S.sheet = null; return render();
     case "near-undo": { const x = S.sheet; S.sheet = null; return setDraft(x.w, x.prev); }
-    case "reset": S.open = null; return setDraft(w, defaultWeek(w));
+    case "reset": S.open = null; return setDraft(w, defWeek(S.me, w));
     case "swap-on": S.swap = { w: weekOf(SEASON[S.me].today), first: null }; return render();
     case "swap-off": S.swap = null; return render();
     case "swap-cancel-first": S.swap.first = null; return render();

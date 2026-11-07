@@ -18,8 +18,11 @@ export const FIREBASE = {
 
 /* Starting values only. Threshold HR is editable from the Us tab.
  * minDays: under this many workout days in a week (alt cardio counts) the
- * week shows "Below plan" (Mary, 7 Nov). */
+ * week shows "Below plan" (Mary, 7 Nov).
+ * quiz: builds a plan of their own from a short quiz the first time they open
+ * the app (Jon, Mary 7 Nov). goal: marathon goal in seconds, shown beside the
+ * quiz; the quiz stores the quiz-taker's own. */
 export const PEOPLE = [
-  { id: "mary", name: "Mary", tz: "America/New_York", place: "Virginia", lt: 167, minDays: 4 },
-  { id: "jon",  name: "Jon",  tz: "America/Denver",   place: "Utah",     lt: 167, minDays: 3 }
+  { id: "mary", name: "Mary", tz: "America/New_York", place: "Virginia", lt: 167, minDays: 4, goal: 14340 },
+  { id: "jon",  name: "Jon",  tz: "America/Denver",   place: "Utah",     lt: 167, minDays: 3, quiz: true }
 ];

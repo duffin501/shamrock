@@ -8,6 +8,26 @@ Installs on a phone as an app. Free to run. Live at https://duffin501.github.io/
 Week 1 is the week of 9 Nov 2026; race week is week 19. The plan file starts a
 week earlier, but nothing before 9 Nov is tracked.
 
+**Jon's own plan (Mary, 7 Nov).** The first time Jon opens the app it quizzes him
+before anything else: days a week, how many are runs, a hard day or not, the long
+run's weekday, how far his longest run should go, alt cardio minutes and goal time.
+Every question shows what Mary is doing beside it, and the last screen shows his
+first week and the two of them side by side. "Just use Mary's plan" skips it. The
+answers are saved at `people/jon/plan`. Every week he hasn't changed, in the app and
+on his watch, is then built from them (`personalWeek` in core.js) out of the shared
+plan's own sessions:
+
+- **Long run:** that week's long run, moved to his day and capped at his peak and at
+  his starting long run plus 1.5 mi a week (8 mi floor).
+- **Hard day:** that week's hard day, if he wants one.
+- **Z2 runs:** Thursday's first, then Monday's, then Sunday's.
+- **Alt cardio:** fills the rest of his days.
+
+Days spread out so a hard day never sits next to the long run, and the day before the
+long run stays free when it can. The race stays on Sunday. He can retake the quiz from
+the Us tab. Which people get the quiz is set by `quiz: true` in config.js; Mary keeps
+the shared plan.
+
 - **Plan next week any time this week.** The Week tab's "Next week" is always open for
   changes, already filled in from the plan, and every change saves as you go. At
   midnight Sunday (your own time) it locks itself as you left it, or as the plan's week
