@@ -34,7 +34,8 @@ the shared plan.
   if you never touched it, and on Monday it becomes "This week". Sunday shows a reminder.
   - **Drag** a day by its grip onto another day and the two trade workouts.
   - **Tap** a day to change it (its plan workout, Z2 easy, Threshold Z4, Intervals Z5,
-    Hills, alt cardio, rest) or its miles (runs) or minutes (bike, walk, alt). A
+    Hills, alt cardio, Any 30 min, rest) or its miles (runs) or minutes (bike, walk, alt,
+    any). A
     threshold, interval or hills day uses the plan's own session of that kind: the latest
     one on or before that day, or the first one if the block hasn't reached it yet. The long run can move and change distance (8 mi
     minimum) but never comes off the week. Race day stays put.
@@ -61,6 +62,12 @@ the shared plan.
   and turns green or red. The right column is planned miles, then actual miles for
   weeks that have started. Your own next week follows your edits live. Tap a day for
   the full workout, notes and what Garmin saw.
+- **Any 30 min** (Mary, 8 Nov) is a day with no set workout: any 30 minutes of
+  anything is a win (run, bike, row, walk, lift, a class). Its minutes can change in
+  steps of 5. Nothing goes on the watch for it, and Garmin turns it green once that
+  day's activities add up to its minutes (any activity, for a day with no time stored).
+  The minus button drops it with bike and alt cardio. Stored as `{ k: "free" }`, plus
+  `min` when it isn't 30.
 - **Green or red.** Tap Done and the day goes green. A rest day goes green by itself.
   Forgot to tap? You have until noon the next day, and the Garmin sync also marks a
   day done when it finds the activity. After that an undone day is red for good.

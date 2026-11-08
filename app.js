@@ -892,6 +892,7 @@ function calLabel(r) {
   if (r.kind === "bike") return `Bike ${r.min}`;
   if (r.kind === "walk") return `Walk ${r.min}`;
   if (r.kind === "alt") return `Alt ${r.min}`;
+  if (r.kind === "free") return `Any ${r.min}`;
   if (r.kind === "easyrun") return `Z2 ${fmtNum(r.mi)}`;
   const reps = /(\d+) x (\d+) (min|sec)/.exec(r.title);
   const rx = reps ? `${reps[1]}x${reps[2]}${reps[3] === "sec" ? "s" : ""}` : "";
@@ -1014,7 +1015,7 @@ function planner(w) {
     const a = days[d], r = resolve(a, d), isLong = d === long, open = S.open === d;
     const fam = a.k === "plan" ? familyOf(a.src) : null;
     const chip = isLong ? (r.race ? "Race" : "Long run") : r.rest ? "Rest"
-      : a.k === "easy" ? "Z2" : a.k === "alt" ? "Alt" : fam ? FAMILY_LABEL[fam] : r.changed ? "Changed" : "Plan";
+      : a.k === "easy" ? "Z2" : a.k === "alt" ? "Alt" : a.k === "free" ? "Any" : fam ? FAMILY_LABEL[fam] : r.changed ? "Changed" : "Plan";
     const grip = r.race ? `<span class="grip off"></span>`
       : `<span class="grip" data-grip="${d}" data-w="${w}" aria-label="Drag ${DOW[i]} to another day">${GRIP}</span>`;
     return `<li class="prow ${open ? "open" : ""}" data-drop="${d}">

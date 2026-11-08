@@ -6,7 +6,7 @@ import {
   amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
   dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS,
-  repsOf, setReps, repStep, personalWeek
+  repsOf, setReps, repStep, personalWeek, dayStatus as status0, planHours, FREE_MIN
 } from "../core.js";
 
 let n = 0;
@@ -78,9 +78,9 @@ t("step up brings days back in reverse", () => {
 });
 t("kind options and setKind", () => {
   const d = defaultWeek(W2);
-  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.key), ["plan", "easy", "int", "hills", "alt", "rest"], "threshold day: no separate Threshold button");
-  assert.deepEqual(kindOptions(d, "2026-11-16", W2).map((o) => o.key), ["plan", "thr", "int", "hills", "alt", "rest"]);
-  assert.deepEqual(kindOptions(d, "2026-11-17", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "hills", "rest"]);
+  assert.deepEqual(kindOptions(d, "2026-11-18", W2).map((o) => o.key), ["plan", "easy", "int", "hills", "alt", "free", "rest"], "threshold day: no separate Threshold button");
+  assert.deepEqual(kindOptions(d, "2026-11-16", W2).map((o) => o.key), ["plan", "thr", "int", "hills", "alt", "free", "rest"]);
+  assert.deepEqual(kindOptions(d, "2026-11-17", W2).map((o) => o.key), ["plan", "easy", "thr", "int", "hills", "free", "rest"]);
   assert.deepEqual(kindOptions(d, "2026-11-20", W2), [], "long run can't change kind");
   const e = setKind(d, "2026-11-18", W2, "alt");
   assert.deepEqual(e["2026-11-18"], { k: "alt" });
@@ -324,6 +324,33 @@ t("a plan of your own from the quiz", () => {
   const s = season({ tz: "America/Denver", plan: jon }, { now: Date.parse("2026-11-12T20:00:00Z") });
   assert.equal(s.assign["2026-11-14"].src, "2026-11-13");
   assert.equal(s.status["2026-11-11"], "rest", "Wednesday is a rest day in his week");
+});
+t("any 30 min day: any session that long is a win", () => {
+  assert.equal(FREE_MIN, 30);
+  const d = defaultWeek(W2);
+  const f = setKind(d, "2026-11-17", W2, "free");
+  assert.deepEqual(f["2026-11-17"], { k: "free" });
+  const r = resolve(f["2026-11-17"], "2026-11-17");
+  assert.equal(r.title, "Any 30 min");
+  assert.equal(r.run, false);
+  assert.equal(countOf(f), countOf(d), "still a workout day");
+  // Minutes can change, and the title follows
+  const spec = amountSpec(f["2026-11-17"], "2026-11-17");
+  assert.equal(spec.unit, "min"); assert.equal(spec.value, 30); assert.equal(spec.base, 30);
+  const g = setAmount(f, "2026-11-17", 45);
+  assert.deepEqual(g["2026-11-17"], { k: "free", min: 45 });
+  assert.equal(resolve(g["2026-11-17"], "2026-11-17").title, "Any 45 min");
+  // Garmin: 30 min on the watch counts, 25 doesn't; with no time stored, any activity does
+  assert.equal(garminMatch(r, { r: 0, n: 1, t: 1800 }), true);
+  assert.equal(garminMatch(r, { r: 3.1, n: 1, t: 1500 }), false);
+  assert.equal(garminMatch(r, { n: 1 }), true);
+  assert.equal(garminMatch(resolve(g["2026-11-17"], "2026-11-17"), { n: 1, t: 1800 }), false, "45 min day needs 45");
+  // Nothing goes on the watch; it drops with bike and alt; counts 30 min of hours
+  assert.equal(garminWant(f["2026-11-17"], "2026-11-17"), null);
+  assert.equal(planHours(r), 0.5);
+  assert.ok(dropOrder(f).indexOf("2026-11-17") < dropOrder(f).findIndex((x) => resolve(f[x], x).kind === "quality"));
+  // A tap still counts
+  assert.equal(status0({ iso: "2026-11-17", a: f["2026-11-17"], today: "2026-11-18", hour: 20, logRec: { done: true } }), "done");
 });
 t("marathon projection from the latest long run", () => {
   assert.equal(hms(14280), "3:58:00");

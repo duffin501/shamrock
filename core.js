@@ -7,6 +7,7 @@
  *                        from the slot's own date once the long run moves)
  *   { k: "easy" }        an easy run instead
  *   { k: "alt" }         alt cardio instead
+ *   { k: "free" }        any 30 minutes of anything (min can change it)
  *   { k: "rest" }        rest
  *
  * Everything time-related takes the person's own timezone, so each of you
@@ -128,10 +129,20 @@ export function resolve(a, iso) {
     return { kind: "easyrun", title: `Easy run ${fmtNum(mi)} mi`, short: `EASY ${fmtNum(mi)}`, mi, baseMi: base,
       changed: mi !== base, rest: false, run: true, long: false, note: "Your route, your call. HR 125-143." };
   }
+  if (a.k === "free") {
+    const min = a.min || FREE_MIN;
+    return { kind: "free", title: `Any ${min} min`, short: `ANY ${min}`, min, baseMin: FREE_MIN, changed: min !== FREE_MIN,
+      rest: false, run: false, long: false,
+      note: `Any ${min} minutes of anything is a win: run, bike, row, walk, lift, a class.` };
+  }
   const min = a.min || 40;
   return { kind: "alt", title: `Alt cardio ${min} min`, short: "ALT", min, baseMin: 40, changed: min !== 40,
     rest: false, run: false, long: false, note: "Bike, row, elliptical, swim or a brisk walk. Easy, HR 100-130." };
 }
+
+/* A free day (Mary, 8 Nov): no set workout, and any session of its length
+ * counts. Garmin turns it green once the day's activities add up to that. */
+export const FREE_MIN = 30;
 
 export const isRest = (a) => !a || a.k === "rest";
 export const countOf = (days) => Object.values(days || {}).filter((a) => !isRest(a)).length;
@@ -231,7 +242,7 @@ function dropClass(a, iso) {
   if (r.rest) return null;
   if (r.long) return "long";
   if (r.kind === "walk") return "walk";
-  if (r.kind === "bike" || r.kind === "alt") return "cross";
+  if (r.kind === "bike" || r.kind === "alt" || r.kind === "free") return "cross";
   if (r.kind === "quality") return "hard";
   return "z2";
 }
@@ -406,7 +417,7 @@ function repWorkout(a) {
 }
 
 /* What a day can be set to: its plan workout, Z2 easy, threshold, intervals,
- * hills, alt cardio or rest. Options that would repeat the plan are left out.
+ * hills, alt cardio, any 30 min, or rest. Options that would repeat the plan are left out.
  * The long run (and race) can only move or change distance. */
 export function kindOptions(days, d, w) {
   if (d === longSlot(days)) return [];
@@ -428,6 +439,7 @@ export function kindOptions(days, d, w) {
     if (src && src !== home) opts.push({ key: fam, k: "plan", src, label });
   }
   if (!["bike", "walk"].includes(pk)) opts.push({ key: "alt", k: "alt", label: "Alt cardio" });
+  opts.push({ key: "free", k: "free", label: `Any ${FREE_MIN} min` });
   opts.push({ key: "rest", k: "rest", label: "Rest" });
   return opts;
 }
@@ -573,11 +585,13 @@ export function needsAutoLock(weeks, w, today) {
 /* ===================== judging a day ===================== */
 
 /* Garmin backs up a forgotten tap. A run day needs a run of a mile or more,
- * the long run needs three quarters of its distance, anything else needs any
- * recorded activity. */
+ * the long run needs three quarters of its distance, a free day needs its
+ * minutes on the watch (any activity, if the day has no time stored), and
+ * anything else needs any recorded activity. */
 export function garminMatch(r, gm) {
   if (!gm || r.rest) return false;
   if (r.long) return (gm.lr || 0) >= 0.75 * (r.mi || 0);
+  if (r.kind === "free") return (gm.t || 0) > 0 ? gm.t >= (r.min || FREE_MIN) * 60 : (gm.n || 0) >= 1;
   if (r.run) return (gm.r || 0) >= 1;
   return (gm.n || 0) >= 1;
 }
