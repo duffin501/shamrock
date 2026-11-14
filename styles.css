@@ -235,19 +235,50 @@ button.row:active{transform:scale(.99)}
 .hint{font-size:13px; color:var(--ink-3); text-align:center; margin-bottom:8px}
 .hint .link{font-size:13px; margin-left:4px}
 
-/* ===================== head to head ===================== */
+/* ===================== together ===================== */
+/* The pair comes first. Green is what got done between you; red appears only
+   for a scheduled workout that didn't happen. Nobody is marked as leading. */
+.team{border-color:var(--brand)}
+.team h2{font-size:clamp(28px, 8.5vw, 38px); margin:2px 0 6px}
+.team h2 .mono{font-weight:500; letter-spacing:-.02em}
+.tbar{display:flex; height:10px; border-radius:6px; overflow:hidden; background:var(--surface-2); margin-top:10px}
+.tbar .d{background:var(--done)} .tbar .m{background:var(--miss)}
+.tiles{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px}
+.tile{background:var(--bg); border:1px solid var(--rule); border-radius:14px; padding:12px 12px 10px; display:flex; flex-direction:column; min-width:0}
+.tile b{font-size:26px; font-weight:500; line-height:1.1}
+.tile b small{font-size:12px; color:var(--ink-3); margin-left:4px; font-weight:400}
+.tile .tl{font-size:12.5px; font-weight:600; color:var(--ink-2); margin-top:2px}
+.split{display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:6px; font-family:"DM Mono",monospace; font-size:11px; color:var(--ink-3)}
+.split .p-mary,.split .p-jon{color:var(--p)}
+
+.loss.has{border-color:var(--miss)}
+.loss.has .block-head .eyebrow:last-child{color:var(--miss)}
+.loss.clean .block-head .eyebrow:last-child{color:var(--done)}
+.clean-line{background:var(--done-soft); color:var(--done); border-radius:12px; padding:12px 14px; font-size:15px}
+.missed{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
+.mrow{width:100%; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:12px; background:var(--miss-soft); font-size:14px}
+.mrow .mwho{font-weight:700; color:var(--p); flex:none}
+.mrow .mwhat{flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.mrow .mwhen{flex:none; font-size:12px; color:var(--miss)}
+.loss .note{margin-top:10px}
+
+.teamweek .tw-line{font-size:15px; color:var(--ink-2)}
+.teamweek .tw-line b{font-size:19px; font-weight:500; color:var(--ink)}
+.teamweek .tw-miss{color:var(--miss)}
+
+/* ===================== each of you ===================== */
 .h2h{padding-top:12px}
-.h2h-head{display:grid; grid-template-columns:1fr 1.1fr 1fr; text-align:center; font-weight:700; padding-bottom:8px; border-bottom:1px solid var(--rule)}
+.h2h-head{display:grid; grid-template-columns:1fr 1.1fr 1fr; align-items:baseline; text-align:center; font-weight:700; padding-bottom:8px; border-bottom:1px solid var(--rule)}
 .h2h-head span:first-child{color:var(--mary)} .h2h-head span:last-child{color:var(--jon)}
+.h2h-head .mid{font-family:"DM Mono",ui-monospace,monospace; font-size:11px; font-weight:400; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3)}
+.h2h-head .mid::before{display:none}
 .h2h-row{display:grid; grid-template-columns:1fr 1.1fr 1fr; align-items:center; text-align:center; padding:11px 0; border-bottom:1px solid var(--rule)}
 .h2h-row:last-of-type{border-bottom:none}
 .h2h-row .lbl{display:flex; flex-direction:column; font-size:13px; font-weight:600; color:var(--ink-2)}
 .h2h-row .lbl small{font-size:11px; font-weight:400; color:var(--ink-3)}
 .h2h-row .v{font-family:"DM Mono",monospace; font-size:21px; display:flex; flex-direction:column; align-items:center; line-height:1.15}
 .h2h-row .v small{font-size:11px; color:var(--ink-3)}
-.h2h-row .v small.up{color:var(--done)} .h2h-row .v small.down{color:var(--miss)}
-.h2h-row .v.lead{color:var(--p); font-weight:500}
-.h2h-row .v.lead::after{content:"lead"; font-size:9px; letter-spacing:.12em; text-transform:uppercase; margin-top:2px; color:var(--p)}
+.h2h-row .v small.up{color:var(--done)}
 .h2h .note{margin-top:10px; text-align:center}
 
 /* ===================== season grid ===================== */

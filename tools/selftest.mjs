@@ -4,7 +4,7 @@ import {
   PLAN, STEPS, addDays, weekOf, weekNo, clock, defaultWeek, countOf, planCount,
   longSlot, stepDown, stepUp, dropOrder, kindOptions, setKind, moveDay, moveLong, resolve,
   amountSpec, setAmount, hardNextToLong, garminWant, lockedDays, governing, canEdit, midnightIn, familySrc, weekDates,
-  dayStatus, garminMatch, season, swapFirstChoices, scaleNote,
+  dayStatus, garminMatch, season, team, swapFirstChoices, scaleNote,
   needsAutoLock, hms, paceStr, longRunProjection, riegel, LAST_WEEK, SEASON_START, TOTAL_WEEKS,
   repsOf, setReps, repStep, personalWeek, dayStatus as status0, planHours, FREE_MIN
 } from "../core.js";
@@ -199,6 +199,24 @@ t("season counts from week 1", () => {
   const none = season({ tz: "America/Denver" }, { now: Date.parse("2026-11-10T20:00:00Z") });
   assert.equal(none.status["2026-11-09"], "miss", "nobody locked: still the plan's week");
   assert.equal(none.status["2026-11-10"], "today");
+});
+t("team: totals add up, a miss is the only loss and it ends the streak", () => {
+  const wk = { [W1]: { lockedAt: 1, days: defaultWeek(W1) } };
+  const now = Date.parse("2026-11-12T18:00:00Z");
+  const all = { "2026-11-09": { done: true }, "2026-11-10": { done: true }, "2026-11-11": { done: true } };
+  const a = season({ tz: "America/New_York", weeks: wk, log: all }, { now });
+  const b = season({ tz: "America/New_York", weeks: wk, log: all }, { now });
+  const clean = team({ mary: a, jon: b });
+  assert.equal(clean.done, a.workouts + b.workouts);
+  assert.equal(clean.due, clean.done); assert.equal(clean.misses, 0);
+  assert.deepEqual(clean.missed, []);
+  assert.equal(clean.streak, 3, "9, 10, 11 Nov; today is still open");
+  const c = season({ tz: "America/New_York", weeks: wk, log: { "2026-11-09": { done: true }, "2026-11-11": { done: true } } }, { now });
+  const hit = team({ mary: a, jon: c });
+  assert.equal(hit.misses, 1);
+  assert.deepEqual(hit.missed, [{ id: "jon", d: "2026-11-10" }]);
+  assert.equal(hit.streak, 1, "only 11 Nov since the miss");
+  assert.equal(hit.miles, Math.round((a.miles + c.miles) * 10) / 10);
 });
 t("hours: every Garmin activity, plan length for tapped days without one", () => {
   const p = { tz: "America/New_York", weeks: { [W1]: { lockedAt: 1, days: defaultWeek(W1) } },

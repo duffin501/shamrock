@@ -621,7 +621,7 @@ export const planHours = (r) => (r.rest ? 0 : r.run ? (r.mi || 0) * RUN_MIN_PER_
 /* ===================== one person, whole season ===================== */
 
 /* Everything about one person in one pass: the status of every date, the
- * head-to-head numbers, and each week's row of dots. */
+ * numbers for the Us tab, and each week's row of dots. */
 export function season(p, { now = Date.now() } = {}) {
   const { iso: today, hour } = clock(p.tz, now);
   const start = SEASON_START;
@@ -664,6 +664,37 @@ export function season(p, { now = Date.now() } = {}) {
   out.hoursEst = Math.round(out.hoursEst * 10) / 10;
   out.miles = Math.round(out.miles * 10) / 10;
   out.longest = Math.round(out.longest * 10) / 10;
+  return out;
+}
+
+/* ===================== the two of you ===================== */
+
+/* Both seasons added up. Nobody leads here: every workout done counts for
+ * the pair, and the one thing that counts against it is a scheduled workout
+ * that didn't happen. `missed` lists those, newest first. `streak` is the
+ * run of days, back from today, on which neither of you missed (rest days
+ * count; a day still open is skipped, not broken). */
+export function team(seasons) {
+  const ids = Object.keys(seasons);
+  const out = { done: 0, due: 0, misses: 0, miles: 0, hours: 0, longDone: 0, longDue: 0, streak: 0, missed: [] };
+  let end = "";
+  for (const id of ids) {
+    const s = seasons[id];
+    out.done += s.workouts; out.due += s.due; out.misses += s.misses;
+    out.miles += s.miles; out.hours += s.hours;
+    out.longDone += s.longDone; out.longDue += s.longDue;
+    if (s.today > end) end = s.today;
+    for (const [d, st] of Object.entries(s.status)) if (st === "miss" && d <= RACE_DAY) out.missed.push({ id, d });
+  }
+  out.missed.sort((x, y) => (x.d < y.d ? 1 : x.d > y.d ? -1 : 0));
+  if (end > RACE_DAY) end = RACE_DAY;
+  for (let d = end; d >= SEASON_START; d = addDays(d, -1)) {
+    const sts = ids.map((id) => seasons[id].status[d]);
+    if (sts.some((s) => s === "miss")) break;
+    if (sts.every(isGreen)) out.streak++;
+  }
+  out.miles = Math.round(out.miles * 10) / 10;
+  out.hours = Math.round(out.hours * 10) / 10;
   return out;
 }
 

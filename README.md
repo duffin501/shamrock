@@ -116,8 +116,8 @@ turns a day green or red.
 The estimate is Riegel's formula, the one most online race-time calculators use:
 time x (26.2 / miles)^1.06. It counts the distance as well as the pace, so the same
 10:30 pace reads 4:48 off a 12-miler and 4:40 off a 20-miler. Long runs are easy
-effort, so the number runs slow next to race-day pace; it's for the trend and the
-head-to-head. It works from the runs the sync already saved, with no extra Garmin
+effort, so the number runs slow next to race-day pace; it's for the trend, not a
+race between the two of you. It works from the runs the sync already saved, with no extra Garmin
 pull.
 
 Garmin's own race predictor isn't used: Mary's account can't read Jon's (Garmin

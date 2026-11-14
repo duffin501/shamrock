@@ -21,7 +21,7 @@ import {
   stepDown, stepUp, kindOptions, setKind, familyOf, FAMILY_LABEL, moveDay, amountSpec, setAmount, hardNextToLong, garminWant,
   repsOf, setReps, repStep, REP_PRESETS, durTxt, ownPlan, personalWeek, QUIZ_DEFAULT,
   lockedDays, governing, needsAutoLock,
-  canLog, isGreen, season, swapFirstChoices, swapSecondChoices,
+  canLog, isGreen, season, team, swapFirstChoices, swapSecondChoices,
   hms, paceStr, longRunProjection, easyMiles
 } from "./core.js";
 
@@ -730,7 +730,7 @@ function tabToday() {
 
   if (s.today > RACE_DAY) {
     out.push(`<section class="hero done-hero"><p class="eyebrow">Shamrock Marathon</p><h2 class="disp">Finished</h2>
-      <p class="note">${TOTAL_WEEKS} weeks, ${SEASON[S.me].workouts} workouts, ${SEASON[S.me].miles} miles.</p></section>`);
+      <p class="note">${TOTAL_WEEKS} weeks. Together: ${ids().reduce((t, id) => t + SEASON[id].workouts, 0)} workouts, ${Math.round(ids().reduce((t, id) => t + SEASON[id].miles, 0) * 10) / 10} miles.</p></section>`);
     return out.join("");
   }
 
@@ -752,7 +752,26 @@ function tabToday() {
       <p class="eyebrow">${esc(weekRange(w))}</p></div>${strip(S.me, w)}</section>`);
   }
   out.push(partnerCard());
+  if (inPlan(w)) out.push(teamWeek(w));
   return out.join("");
+}
+
+/* This week for the pair: what's done between you, and anything missed. */
+function teamWeek(w) {
+  let done = 0, total = 0, miss = 0;
+  for (const id of ids()) for (const d of weekDates(w)) {
+    const st = SEASON[id].status[d];
+    if (st === "done") done++;
+    if (st === "miss") miss++;
+    if (["done", "miss", "today", "grace", "future"].includes(st)) total++;
+  }
+  const left = total - done - miss;
+  const tail = miss ? `<span class="tw-miss">${miss} missed</span>` : left ? `${left} to go, nothing missed` : "all done, nothing missed";
+  return `<section class="block teamweek">
+    <div class="block-head"><p class="eyebrow">Together this week</p><p class="eyebrow">${tail}</p></div>
+    <p class="tw-line"><b class="mono">${done}</b> of <b class="mono">${total}</b> workouts done between you</p>
+    <div class="tbar"><i class="d" style="width:${total ? 100 * done / total : 0}%"></i>${miss ? `<i class="m" style="width:${100 * miss / total}%"></i>` : ""}</div>
+  </section>`;
 }
 
 function hero() {
@@ -1102,29 +1121,63 @@ function repsEditor(a, d, w) {
 function tabUs() {
   const [a, b] = ids();
   const sa = SEASON[a], sb = SEASON[b];
+  const T = team({ [a]: sa, [b]: sb });
   const pa = longRunProjection(person(a).garmin?.days, sa.today);
   const pb = longRunProjection(person(b).garmin?.days, sb.today);
 
-  const cmp = (x, y, better) => better === "high" ? (x > y ? "a" : y > x ? "b" : "") : (x < y ? "a" : y < x ? "b" : "");
-  const row = (label, va, vb, lead, sub) => `<div class="h2h-row">
-      <div class="v ${lead === "a" ? "lead" : ""} p-${a}">${va}</div>
-      <div class="lbl"><span>${label}</span>${sub ? `<small>${sub}</small>` : ""}</div>
-      <div class="v ${lead === "b" ? "lead" : ""} p-${b}">${vb}</div>
-    </div>`;
-  const started = (s) => !!s.start;
   const n = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toString();
+  const started = (s) => !!s.start;
+
+  /* Together: one number for the pair, with who put in what underneath. */
+  const split = (va, vb) => `<small class="split"><span class="p-${a}">${esc(nameOf(a))} ${va}</span><span class="p-${b}">${esc(nameOf(b))} ${vb}</span></small>`;
+  const tile = (big, unit, label, sp) => `<div class="tile"><b class="mono">${big}${unit ? `<small>${unit}</small>` : ""}</b><span class="tl">${label}</span>${sp}</div>`;
+  const pct = T.due ? Math.round(100 * T.done / T.due) : 0;
+  const headline = !T.due ? `<h2 class="disp">Under way</h2><p class="note">Nothing has come due yet. Every workout either of you does counts for both.</p>`
+    : `<h2 class="disp"><span class="mono">${T.done}</span> of <span class="mono">${T.due}</span> done</h2>
+       <p class="note">Scheduled workouts, the two of you together.${T.misses ? "" : " Nothing missed."}</p>
+       <div class="tbar" role="img" aria-label="${T.done} done, ${T.misses} missed"><i class="d" style="width:${pct}%"></i>${T.misses ? `<i class="m" style="width:${100 - pct}%"></i>` : ""}</div>`;
+  const together = `<section class="block team">
+      <div class="block-head"><p class="eyebrow">Together</p><p class="eyebrow">since 9 Nov</p></div>
+      ${headline}
+      <div class="tiles">
+        ${tile(n(T.miles), "mi", "Miles together", split(n(sa.miles), n(sb.miles)))}
+        ${tile(n(T.hours), "hrs", "Hours together", split(n(sa.hours), n(sb.hours)))}
+        ${tile(`${T.longDone}<small>of ${T.longDue}</small>`, "", "Long runs done", split(sa.longDone, sb.longDone))}
+        ${tile(T.streak, T.streak === 1 ? "day" : "days", "In a row, nothing missed", `<small class="split"><span>both of you</span></small>`)}
+      </div>
+    </section>`;
+
+  /* The only loss: a scheduled workout that didn't happen. */
+  const SHOW = 6;
+  const missRows = T.missed.slice(0, SHOW).map(({ id, d }) => {
+    const r = SEASON[id].assign[d] ? resolve(SEASON[id].assign[d], d) : null;
+    return `<li><button class="mrow" data-act="calday" data-id="${id}" data-d="${d}"><span class="mwho p-${id}">${esc(nameOf(id))}</span><span class="mwhat">${esc(r ? r.title : "Workout")}</span><span class="mwhen mono">${esc(shortDate(d))}</span></button></li>`;
+  }).join("");
+  const loss = `<section class="block loss ${T.misses ? "has" : "clean"}">
+      <div class="block-head"><p class="eyebrow">The only way to lose</p><p class="eyebrow">${T.misses} missed</p></div>
+      ${T.misses
+        ? `<ul class="missed">${missRows}</ul>${T.missed.length > SHOW ? `<p class="note small">And ${T.missed.length - SHOW} earlier.</p>` : ""}`
+        : `<p class="clean-line"><b>Nothing missed.</b> Every scheduled workout has happened.</p>`}
+      <p class="note small">A scheduled workout that doesn't happen is the one loss here, and it's a loss for the team. Everything else is a win for both of you.</p>
+    </section>`;
+
+  /* Each of you: the same numbers side by side, with no leader. */
+  const row = (label, va, vb, sub) => `<div class="h2h-row">
+      <div class="v p-${a}">${va}</div>
+      <div class="lbl"><span>${label}</span>${sub ? `<small>${sub}</small>` : ""}</div>
+      <div class="v p-${b}">${vb}</div>
+    </div>`;
   const predCell = (p) => p
     ? `${hms(p.sec)}<small>from ${(Math.round(p.mi * 10) / 10)} mi at ${paceStr(p.pace)}</small><small>${esc(shortDate(p.d))}</small>${p.change ? `<small class="${p.change < 0 ? "up" : "down"}">${p.change < 0 ? "faster" : "slower"} ${shortDelta(p.change)}</small>` : ""}`
     : "<span class='dim'>no long run yet</span>";
 
   const rows = [
-    row("Workouts", started(sa) ? `${sa.workouts}<small>of ${sa.due}</small>` : "–", started(sb) ? `${sb.workouts}<small>of ${sb.due}</small>` : "–", cmp(sa.workouts, sb.workouts, "high"), "done on the day"),
-    row("Missed days", started(sa) ? sa.misses : "–", started(sb) ? sb.misses : "–", started(sa) && started(sb) ? cmp(sa.misses, sb.misses, "low") : "", "red days"),
-    row("Miles", `${n(sa.miles)}${sa.milesEst ? "<small>part est.</small>" : ""}`, `${n(sb.miles)}${sb.milesEst ? "<small>part est.</small>" : ""}`, cmp(sa.miles, sb.miles, "high"), "since 9 Nov"),
-    row("Hours", `${n(sa.hours)}<small>hrs</small>${sa.hoursEst ? "<small>part est.</small>" : ""}`, `${n(sb.hours)}<small>hrs</small>${sb.hoursEst ? "<small>part est.</small>" : ""}`, cmp(sa.hours, sb.hours, "high"), "runs, walks, bike, alt"),
-    row("Longest run", `${n(sa.longest)}<small>mi</small>`, `${n(sb.longest)}<small>mi</small>`, cmp(sa.longest, sb.longest, "high"), "single run"),
-    row("Long runs", started(sa) ? `${sa.longDone}<small>of ${sa.longDue}</small>` : "–", started(sb) ? `${sb.longDone}<small>of ${sb.longDue}</small>` : "–", cmp(sa.longDone, sb.longDone, "high"), "the non-negotiable"),
-    row("Marathon est.", predCell(pa), predCell(pb), pa && pb ? cmp(pa.sec, pb.sec, "low") : "", "latest long run, Riegel")
+    row("Workouts", started(sa) ? `${sa.workouts}<small>of ${sa.due}</small>` : "–", started(sb) ? `${sb.workouts}<small>of ${sb.due}</small>` : "–", "done on the day"),
+    row("Miles", `${n(sa.miles)}${sa.milesEst ? "<small>part est.</small>" : ""}`, `${n(sb.miles)}${sb.milesEst ? "<small>part est.</small>" : ""}`, "since 9 Nov"),
+    row("Hours", `${n(sa.hours)}<small>hrs</small>${sa.hoursEst ? "<small>part est.</small>" : ""}`, `${n(sb.hours)}<small>hrs</small>${sb.hoursEst ? "<small>part est.</small>" : ""}`, "runs, walks, bike, alt"),
+    row("Longest run", `${n(sa.longest)}<small>mi</small>`, `${n(sb.longest)}<small>mi</small>`, "single run"),
+    row("Long runs", started(sa) ? `${sa.longDone}<small>of ${sa.longDue}</small>` : "–", started(sb) ? `${sb.longDone}<small>of ${sb.longDue}</small>` : "–", "the non-negotiable"),
+    row("Marathon est.", predCell(pa), predCell(pb), "latest long run, Riegel")
   ].join("");
 
   const tz = person(S.me).tz;
@@ -1147,8 +1200,10 @@ function tabUs() {
 
   const me = person(S.me);
 
-  return `<section class="block h2h">
-      <div class="h2h-head"><span class="p-${a}">${esc(nameOf(a))}</span><span></span><span class="p-${b}">${esc(nameOf(b))}</span></div>
+  return `${together}
+    ${loss}
+    <section class="block h2h">
+      <div class="h2h-head"><span class="p-${a}">${esc(nameOf(a))}</span><span class="mid">Each of you</span><span class="p-${b}">${esc(nameOf(b))}</span></div>
       ${rows}
       <ul class="gsync">${ids().map(garminLine).join("")}</ul>
     </section>
